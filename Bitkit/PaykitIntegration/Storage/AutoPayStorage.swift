@@ -110,6 +110,10 @@ public struct StoredAutoPayRule: Identifiable, Codable {
 /// Manages persistent storage of auto-pay settings
 public class AutoPayStorage {
     
+    // MARK: - Singleton
+    
+    public static let shared = AutoPayStorage()
+    
     private let keychain: PaykitKeychainStorage
     private let identityName: String
     
@@ -117,6 +121,7 @@ public class AutoPayStorage {
     private var settingsCache: AutoPaySettings?
     private var limitsCache: [StoredPeerLimit]?
     private var rulesCache: [StoredAutoPayRule]?
+    private var historyCache: [AutoPayHistoryEntry]?
     
     private var settingsKey: String {
         "paykit.autopay.\(identityName).settings"
@@ -130,9 +135,27 @@ public class AutoPayStorage {
         "paykit.autopay.\(identityName).rules"
     }
     
+    private var historyKey: String {
+        "paykit.autopay.\(identityName).history"
+    }
+    
     public init(identityName: String = "default", keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
         self.identityName = identityName
         self.keychain = keychain
+    }
+    
+    // MARK: - Convenience
+    
+    /// Whether auto-pay is globally enabled
+    public var isEnabled: Bool {
+        getSettings().isEnabled
+    }
+    
+    /// Get an auto-pay rule for a specific peer
+    public func getRule(for peerPubkey: String) -> StoredAutoPayRule? {
+        getRules().first { rule in
+            rule.isEnabled && (rule.allowedPeers.isEmpty || rule.allowedPeers.contains(peerPubkey))
+        }
     }
     
     // MARK: - Settings
@@ -239,6 +262,42 @@ public class AutoPayStorage {
         try persistRules(rules)
     }
     
+    // MARK: - History
+    
+    public func getHistory() -> [AutoPayHistoryEntry] {
+        if let cached = historyCache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: historyKey) else {
+                return []
+            }
+            let history = try JSONDecoder().decode([AutoPayHistoryEntry].self, from: data)
+            historyCache = history.sorted { $0.timestamp > $1.timestamp }
+            return historyCache!
+        } catch {
+            Logger.error("AutoPayStorage: Failed to load history: \(error)", context: "AutoPayStorage")
+            return []
+        }
+    }
+    
+    public func saveHistoryEntry(_ entry: AutoPayHistoryEntry) throws {
+        var history = getHistory()
+        history.insert(entry, at: 0)
+        
+        // Keep only the last 100 entries
+        if history.count > 100 {
+            history = Array(history.prefix(100))
+        }
+        
+        try persistHistory(history)
+    }
+    
+    public func clearHistory() throws {
+        try persistHistory([])
+    }
+    
     // MARK: - Private
     
     private func persistLimits(_ limits: [StoredPeerLimit]) throws {
@@ -251,6 +310,12 @@ public class AutoPayStorage {
         let data = try JSONEncoder().encode(rules)
         try keychain.store(key: rulesKey, data: data)
         rulesCache = rules
+    }
+    
+    private func persistHistory(_ history: [AutoPayHistoryEntry]) throws {
+        let data = try JSONEncoder().encode(history)
+        try keychain.store(key: historyKey, data: data)
+        historyCache = history
     }
 }
 
