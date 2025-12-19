@@ -55,8 +55,8 @@ final class PaykitManagerTests: XCTestCase {
     func testRegisterExecutorsThrowsIfNotInitialized() {
         // When/Then
         XCTAssertThrowsError(try manager.registerExecutors()) { error in
-            XCTAssertTrue(error is PaykitError)
-            if case PaykitError.notInitialized = error {
+            XCTAssertTrue(error is PaykitManagerError)
+            if case PaykitManagerError.notInitialized = error {
                 // Expected
             } else {
                 XCTFail("Expected notInitialized error")

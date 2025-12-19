@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import BitkitCore
+@testable import Bitkit
 
 /// Helper class for wallet-related test operations
 public class WalletTestHelper {
@@ -196,11 +198,12 @@ extension WalletTestHelper {
         return PubkyProfile(
             name: "Test User",
             bio: "This is a test profile for E2E testing",
-            avatar: nil,
+            image: nil,
             links: [
-                PubkyProfileLink(title: "Website", url: "https://example.com"),
-                PubkyProfileLink(title: "Twitter", url: "https://twitter.com/test")
-            ]
+                "https://example.com",
+                "https://twitter.com/test"
+            ],
+            status: nil
         )
     }
 }

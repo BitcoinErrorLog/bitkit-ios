@@ -478,7 +478,7 @@ class ProfileViewModel: ObservableObject {
                 if setupResult.hasNoiseKeys {
                     Logger.info("Received noise keypairs for Paykit (epoch 0 & 1)", context: "ProfileViewModel")
                 } else {
-                    Logger.warning("No noise keypairs received - Paykit P2P features may be limited", context: "ProfileViewModel")
+                    Logger.warn("No noise keypairs received - Paykit P2P features may be limited", context: "ProfileViewModel")
                 }
                 
                 // Update UI state
@@ -657,14 +657,11 @@ class ProfileViewModel: ObservableObject {
             let jsonData = try JSONSerialization.data(withJSONObject: profileDict)
             
             // Put profile to homeserver using the active session from Pubky SDK
-            // sessionPut is now synchronous - run it in a background task
-            try await Task {
-                try PubkySDKService.shared.sessionPut(
-                    pubkey: pubkyId,
-                    path: "/pub/pubky.app/profile.json",
-                    content: jsonData
-                )
-            }.value
+            try await PubkySDKService.shared.sessionPut(
+                pubkey: pubkyId,
+                path: "/pub/pubky.app/profile.json",
+                content: jsonData
+            )
             
             originalName = trimmedName
             originalBio = trimmedBio

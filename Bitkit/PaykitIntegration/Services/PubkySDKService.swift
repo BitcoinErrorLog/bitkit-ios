@@ -64,8 +64,8 @@ public final class PubkySDKService {
     ///   - sessionSecret: The session secret (cookie) from Pubky Ring
     public func importSession(pubkey: String, sessionSecret: String) throws -> BitkitCore.PubkySessionInfo {
         ensureInitialized()
-        // This is now synchronous - it uses the Tokio runtime internally
-        let session = try pubkyImportSession(pubkey: pubkey, sessionSecret: sessionSecret)
+        // Use the synchronous version from BitkitCore
+        let session = try BitkitCore.pubkyImportSession(pubkey: pubkey, sessionSecret: sessionSecret)
         Logger.info("Imported session for \(session.pubkey.prefix(12))...", context: "PubkySDKService")
         return session
     }
@@ -91,20 +91,20 @@ public final class PubkySDKService {
     
     // MARK: - Session Storage
     
-    public func sessionGet(pubkey: String, path: String) throws -> Data {
-        return try pubkySessionGet(pubkey: pubkey, path: path)
+    public func sessionGet(pubkey: String, path: String) async throws -> Data {
+        return try await pubkySessionGet(pubkey: pubkey, path: path)
     }
     
-    public func sessionPut(pubkey: String, path: String, content: Data) throws {
-        try pubkySessionPut(pubkey: pubkey, path: path, content: content)
+    public func sessionPut(pubkey: String, path: String, content: Data) async throws {
+        try await pubkySessionPut(pubkey: pubkey, path: path, content: content)
     }
     
-    public func sessionDelete(pubkey: String, path: String) throws {
-        try pubkySessionDelete(pubkey: pubkey, path: path)
+    public func sessionDelete(pubkey: String, path: String) async throws {
+        try await pubkySessionDelete(pubkey: pubkey, path: path)
     }
     
-    public func sessionList(pubkey: String, path: String) throws -> [BitkitCore.PubkyListItem] {
-        return try pubkySessionList(pubkey: pubkey, path: path)
+    public func sessionList(pubkey: String, path: String) async throws -> [BitkitCore.PubkyListItem] {
+        return try await pubkySessionList(pubkey: pubkey, path: path)
     }
     
     // MARK: - Public Storage (No Authentication)

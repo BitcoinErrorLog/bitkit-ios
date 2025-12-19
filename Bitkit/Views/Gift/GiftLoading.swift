@@ -74,7 +74,7 @@ struct GiftLoading: View {
         do {
             // Create a zero amount lightning invoice
             let invoice = try await wallet.createInvoice(note: "blocktank-gift-code:\(code)")
-            _ = try await giftPay(invoice: invoice)
+            _ = try await BitkitCore.giftPay(invoice: invoice)
         } catch {
             handleGiftClaimError(error)
         }
@@ -87,7 +87,7 @@ struct GiftLoading: View {
             }
 
             // Create an order for the gift using BitkitCore
-            let order = try await giftOrder(clientNodeId: nodeId, code: "blocktank-gift-code:\(code)")
+            let order = try await BitkitCore.giftOrder(clientNodeId: nodeId, code: "blocktank-gift-code:\(code)")
 
             guard let orderId = order.orderId else {
                 throw AppError(message: "Order ID is nil", debugMessage: "Order ID is nil")

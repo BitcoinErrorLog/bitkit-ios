@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@testable import Bitkit
 
 /// Simulates Pubky-ring app responses for testing purposes
 /// This allows E2E tests to run without requiring the actual Pubky-ring app
@@ -105,17 +106,21 @@ public class PubkyRingSimulator {
     ) -> PubkySession {
         return PubkySession(
             pubkey: pubkey,
-            sessionSecret: sessionSecret
+            sessionSecret: sessionSecret,
+            capabilities: ["*"],
+            createdAt: Date()
         )
     }
     
     /// Directly cache a test session in PubkyRingBridge
+    /// Note: Currently stubbed as cacheSession is not exposed
     public func cacheTestSession(
         pubkey: String = PubkyRingSimulator.testPubkey,
         sessionSecret: String = PubkyRingSimulator.testSessionSecret
     ) {
-        let session = createTestSession(pubkey: pubkey, sessionSecret: sessionSecret)
-        PubkyRingBridge.shared.cacheSession(session)
+        // Session caching is handled internally by PubkyRingBridge
+        // Tests should use the URL callback flow instead
+        _ = createTestSession(pubkey: pubkey, sessionSecret: sessionSecret)
     }
     
     // MARK: - Cleanup
