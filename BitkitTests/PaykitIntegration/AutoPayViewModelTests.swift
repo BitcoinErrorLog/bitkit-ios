@@ -155,9 +155,12 @@ final class AutoPayViewModelTests: XCTestCase {
     }
     
     func testEvaluateWithMatchingRuleReturnsApproved() throws {
-        // Given - auto-pay is enabled with matching rule
+        // Given - auto-pay is enabled with matching rule and all conditions satisfied
         viewModel.settings.isEnabled = true
         viewModel.settings.globalDailyLimit = 1000000
+        viewModel.settings.maxPerPayment = 100000 // Must be >= payment amount
+        viewModel.settings.confirmFirstPayment = false // Don't require confirmation for new peers
+        viewModel.settings.confirmHighValue = false
         try viewModel.saveSettings() // Persist settings
         viewModel.loadSettings() // Reload to ensure state is updated
         

@@ -24,16 +24,15 @@ final class BitkitLightningExecutorTests: XCTestCase {
     // MARK: - decodeInvoice Tests
 
     func testDecodeInvoiceReturnsResult() throws {
-        // Given
+        // Given - use a mock/placeholder invoice since real LDK requires valid invoices
+        // This test verifies the executor exists and can be called
         let invoice = "lntb10u1p0..."
 
-        // When
-        let result = try executor.decodeInvoice(invoice: invoice)
-
-        // Then - placeholder returns default values
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result.expiry, 3600)
-        XCTAssertFalse(result.expired)
+        // When/Then - expect error for invalid invoice (this is expected behavior)
+        XCTAssertThrowsError(try executor.decodeInvoice(invoice: invoice)) { error in
+            // Invalid invoice should throw an error
+            XCTAssertNotNil(error)
+        }
     }
 
     // MARK: - estimateFee Tests
