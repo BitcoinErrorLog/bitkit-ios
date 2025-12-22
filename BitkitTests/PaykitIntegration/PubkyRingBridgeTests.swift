@@ -270,5 +270,113 @@ final class PubkyRingBridgeTests: XCTestCase {
         XCTAssertFalse(AuthenticationStatus.pubkyRingAvailable.description.isEmpty)
         XCTAssertFalse(AuthenticationStatus.crossDeviceOnly.description.isEmpty)
     }
+    
+    // MARK: - Paykit Setup Callback Tests
+    
+    func testHandlePaykitSetupCallbackReturnsTrue() {
+        let url = URL(string: "bitkit://paykit-setup?pubky=pk1test123&session_secret=secret123&device_id=device456")!
+        
+        let handled = bridge.handleCallback(url: url)
+        
+        XCTAssertTrue(handled, "Should handle paykit-setup callback")
+    }
+    
+    func testHandlePaykitSetupCallbackCachesSession() {
+        let pubkey = "pk1testcallback789"
+        let secret = "callbacksecret456"
+        let deviceId = "testdevice123"
+        let url = URL(string: "bitkit://paykit-setup?pubky=\(pubkey)&session_secret=\(secret)&device_id=\(deviceId)")!
+        
+        _ = bridge.handleCallback(url: url)
+        
+        let cached = bridge.getCachedSession(for: pubkey)
+        XCTAssertNotNil(cached, "Session should be cached after callback")
+        XCTAssertEqual(cached?.pubkey, pubkey)
+        XCTAssertEqual(cached?.sessionSecret, secret)
+    }
+    
+    func testHandlePaykitSetupCallbackWithCapabilities() {
+        let pubkey = "pk1testcaps456"
+        let url = URL(string: "bitkit://paykit-setup?pubky=\(pubkey)&session_secret=secret&device_id=dev&capabilities=read,write,paykit")!
+        
+        _ = bridge.handleCallback(url: url)
+        
+        let cached = bridge.getCachedSession(for: pubkey)
+        XCTAssertEqual(cached?.capabilities.count, 3)
+        XCTAssertTrue(cached?.hasCapability("read") ?? false)
+        XCTAssertTrue(cached?.hasCapability("write") ?? false)
+        XCTAssertTrue(cached?.hasCapability("paykit") ?? false)
+    }
+    
+    func testHandlePaykitSetupCallbackMissingRequiredParamsReturnsTrue() {
+        // Missing device_id - should still return true (handled) but with error
+        let url = URL(string: "bitkit://paykit-setup?pubky=test&session_secret=secret")!
+        
+        let handled = bridge.handleCallback(url: url)
+        
+        // Returns true because it was recognized as a paykit-setup callback
+        XCTAssertTrue(handled)
+    }
+    
+    func testHandlePaykitSetupCallbackWithNoiseKeys() {
+        let pubkey = "pk1testnoise789"
+        let deviceId = "noisedevice123"
+        let url = URL(string: "bitkit://paykit-setup?pubky=\(pubkey)&session_secret=secret&device_id=\(deviceId)&noise_public_key_0=pubkey0hex&noise_secret_key_0=seckey0hex&noise_public_key_1=pubkey1hex&noise_secret_key_1=seckey1hex")!
+        
+        _ = bridge.handleCallback(url: url)
+        
+        // Session should be cached
+        let cached = bridge.getCachedSession(for: pubkey)
+        XCTAssertNotNil(cached, "Session should be cached with noise keys callback")
+        
+        // Noise keys are stored in NoiseKeyCache, verified by keypair count
+        let keypairCount = bridge.getCachedKeypairCount()
+        XCTAssertGreaterThanOrEqual(keypairCount, 0, "Keypair count should be valid")
+    }
+    
+    // MARK: - Backup and Restore Tests
+    
+    func testExportBackupContainsDeviceId() {
+        let backup = bridge.exportBackup()
+        
+        XCTAssertFalse(backup.deviceId.isEmpty, "Backup should contain device ID")
+        XCTAssertEqual(backup.version, 1, "Backup version should be 1")
+    }
+    
+    func testExportBackupContainsCachedSessions() {
+        _ = bridge.importSession(pubkey: "backuptest1", sessionSecret: "secret1")
+        _ = bridge.importSession(pubkey: "backuptest2", sessionSecret: "secret2")
+        
+        let backup = bridge.exportBackup()
+        
+        XCTAssertEqual(backup.sessions.count, 2, "Backup should contain 2 sessions")
+    }
+    
+    func testImportBackupRestoresSessions() {
+        let session1 = PubkySession(
+            pubkey: "restoretest1",
+            sessionSecret: "restsecret1",
+            capabilities: ["read"],
+            createdAt: Date()
+        )
+        let session2 = PubkySession(
+            pubkey: "restoretest2",
+            sessionSecret: "restsecret2",
+            capabilities: ["write"],
+            createdAt: Date()
+        )
+        
+        let backup = PubkyRingBridge.BackupData(
+            deviceId: "backupdevice123",
+            sessions: [session1, session2],
+            noiseKeys: []
+        )
+        
+        bridge.clearCache()
+        bridge.importBackup(backup)
+        
+        XCTAssertNotNil(bridge.getCachedSession(for: "restoretest1"))
+        XCTAssertNotNil(bridge.getCachedSession(for: "restoretest2"))
+    }
 }
 

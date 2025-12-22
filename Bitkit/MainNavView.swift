@@ -237,6 +237,15 @@ struct MainNavView: View {
                     await handlePaymentRequestDeepLink(url: url, app: app, sheets: sheets)
                     return
                 }
+                
+                #if DEBUG
+                // Test handler for publishing a payment request (DEBUG builds only)
+                // URL: bitkit://test-publish-request?amount=42069&to=<recipientPubkey>&description=Test
+                if url.scheme == "bitkit" && url.host == "test-publish-request" {
+                    await handleTestPublishRequest(url: url, app: app)
+                    return
+                }
+                #endif
 
                 // Handle other deep links (Bitcoin, Lightning, etc.)
                 do {
@@ -463,14 +472,173 @@ struct MainNavView: View {
         }
     }
     
-    /// Handle payment request deep links (disabled - PaykitIntegration excluded from build)
+    #if DEBUG
+    /// Test handler for publishing a payment request to Pubky storage (DEBUG only)
+    /// URL: bitkit://test-publish-request?amount=42069&to=<recipientPubkey>&description=Test
+    private func handleTestPublishRequest(url: URL, app: AppViewModel) async {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            app.toast(type: .error, title: "Invalid Test URL", description: "Could not parse test request URL")
+            return
+        }
+        
+        let amountString = queryItems.first(where: { $0.name == "amount" })?.value ?? "42069"
+        let toPubkey = queryItems.first(where: { $0.name == "to" })?.value ?? ""
+        let description = queryItems.first(where: { $0.name == "description" })?.value ?? "Test payment request"
+        
+        guard let amount = Int64(amountString) else {
+            app.toast(type: .error, title: "Invalid Amount", description: "Amount must be a number")
+            return
+        }
+        
+        guard !toPubkey.isEmpty else {
+            app.toast(type: .error, title: "Missing Recipient", description: "to parameter is required")
+            return
+        }
+        
+        // Get our pubkey from the session - try cached session first, fall back to test credentials
+        let session: PubkySession
+        if let cachedSession = PubkyRingBridge.shared.getAllSessions().first {
+            session = cachedSession
+        } else {
+            // Use test iOS credentials for development
+            // iOS: h73bexkpkkeus4uhaga4h1un8fgypyhiehw338k8owkjc6ummuso
+            let testPubkey = "h73bexkpkkeus4uhaga4h1un8fgypyhiehw338k8owkjc6ummuso"
+            let testSessionSecret = "h73bexkpkkeus4uhaga4h1un8fgypyhiehw338k8owkjc6ummuso:BA2Q8TWAM5FQTG7RYYK911E764"
+            session = PubkySession(
+                pubkey: testPubkey,
+                sessionSecret: testSessionSecret,
+                capabilities: ["read", "write"],
+                createdAt: Date()
+            )
+            Logger.info("Using test iOS credentials for development", context: "MainNavView")
+        }
+        
+        let requestId = "pr_test_\(Int(Date().timeIntervalSince1970))"
+        let ourPubkey = session.pubkey
+        
+        // Create the payment request
+        let request = BitkitPaymentRequest(
+            id: requestId,
+            fromPubkey: ourPubkey,
+            toPubkey: toPubkey,
+            amountSats: amount,
+            currency: "BTC",
+            methodId: "lightning",
+            description: description,
+            createdAt: Date(),
+            expiresAt: nil,
+            status: .pending,
+            direction: .outgoing
+        )
+        
+        Logger.info("Publishing test payment request: \(requestId) for \(amount) sats from \(ourPubkey.prefix(12))... to \(toPubkey.prefix(12))...", context: "MainNavView")
+        
+        // Import session into PubkySDKService first
+        do {
+            _ = try PubkySDKService.shared.importSession(pubkey: session.pubkey, sessionSecret: session.sessionSecret)
+            Logger.info("Imported session for \(session.pubkey.prefix(12))...", context: "MainNavView")
+        } catch {
+            Logger.error("Failed to import session: \(error)", context: "MainNavView")
+            app.toast(type: .error, title: "Session Import Failed", description: error.localizedDescription)
+            return
+        }
+        
+        // Configure DirectoryService with our session
+        DirectoryService.shared.configureWithPubkySession(session)
+        
+        do {
+            try await DirectoryService.shared.publishPaymentRequest(request)
+            
+            // Show success with the deep link for the receiver
+            let receiverDeepLink = "bitkit://payment-request?requestId=\(requestId)&from=\(ourPubkey)"
+            Logger.info("Published! Receiver deep link: \(receiverDeepLink)", context: "MainNavView")
+            
+            app.toast(type: .success, title: "Request Published!", description: "ID: \(requestId) - \(amount) sats")
+            
+            // Copy the receiver deep link to clipboard
+            UIPasteboard.general.string = receiverDeepLink
+            
+        } catch {
+            Logger.error("Failed to publish test request: \(error)", context: "MainNavView")
+            app.toast(type: .error, title: "Publish Failed", description: error.localizedDescription)
+        }
+    }
+    #endif
+    
+    /// Handle payment request deep links
     /// Format: paykit://payment-request?requestId=xxx&from=yyy
     /// or: bitkit://payment-request?requestId=xxx&from=yyy
     private func handlePaymentRequestDeepLink(url: URL, app: AppViewModel, sheets: SheetViewModel) async {
-        app.toast(
-            type: .warning,
-            title: "Paykit Not Available",
-            description: "Paykit integration is pending"
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            app.toast(type: .error, title: "Invalid Request", description: "Could not parse payment request URL")
+            return
+        }
+        
+        let requestId = queryItems.first(where: { $0.name == "requestId" })?.value
+        let fromPubkey = queryItems.first(where: { $0.name == "from" })?.value
+        
+        guard let requestId = requestId, let fromPubkey = fromPubkey else {
+            app.toast(type: .error, title: "Invalid Request", description: "Payment request URL is missing required parameters")
+            return
+        }
+        
+        Logger.info("Processing payment request: \(requestId) from \(fromPubkey.prefix(16))...", context: "MainNavView")
+        
+        // Check if PaykitManager is initialized, try to initialize if not
+        if !PaykitManager.shared.isInitialized {
+            do {
+                try PaykitManager.shared.initialize()
+            } catch {
+                Logger.error("Failed to initialize PaykitManager: \(error)", context: "MainNavView")
+                app.toast(type: .error, title: "Paykit Not Ready", description: "Please connect to Pubky Ring first")
+                return
+            }
+        }
+        
+        // Get PaykitClient
+        guard let paykitClient = PaykitManager.shared.client else {
+            app.toast(type: .error, title: "Paykit Not Ready", description: "Paykit client not available")
+            return
+        }
+        
+        // Create autopay evaluator
+        let autoPayViewModel = await AutoPayViewModel()
+        
+        // Create PaymentRequestService
+        let paymentRequestStorage = PaymentRequestStorage()
+        let directoryService = DirectoryService.shared
+        
+        let paymentRequestService = PaymentRequestService(
+            paykitClient: paykitClient,
+            autopayEvaluator: autoPayViewModel,
+            paymentRequestStorage: paymentRequestStorage,
+            directoryService: directoryService
         )
+        
+        // Handle the payment request
+        paymentRequestService.handleIncomingRequest(requestId: requestId, fromPubkey: fromPubkey) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let processingResult):
+                    switch processingResult {
+                    case .autoPaid(let paymentResult):
+                        app.toast(type: .success, title: "Payment Completed", description: "Payment was automatically processed")
+                        Logger.info("Auto-paid payment request \(requestId)", context: "MainNavView")
+                    case .needsApproval(let request):
+                        app.toast(type: .info, title: "Payment Request", description: "Amount: \(request.amountSats) sats from \(fromPubkey.prefix(12))...")
+                        // TODO: Show payment approval UI
+                    case .denied(let reason):
+                        app.toast(type: .warning, title: "Payment Denied", description: reason)
+                    case .error(let error):
+                        app.toast(type: .error, title: "Payment Error", description: error.localizedDescription)
+                    }
+                case .failure(let error):
+                    Logger.error("Payment request handling failed: \(error)", context: "MainNavView")
+                    app.toast(type: .error, title: "Request Failed", description: error.localizedDescription)
+                }
+            }
+        }
     }
 }

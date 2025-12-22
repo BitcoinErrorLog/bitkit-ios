@@ -11,5 +11,8 @@
 // Import PaykitMobile FFI types
 #include "PaykitMobileFFI.h"
 
+// Import PubkyNoise FFI types
+#include "PubkyNoiseFFI.h"
+
 #endif /* Bitkit_Bridging_Header_h */
 

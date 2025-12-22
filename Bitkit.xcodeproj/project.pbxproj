@@ -82,7 +82,6 @@
 				AppDelegate_integration.swift,
 				Info.plist,
 				PaykitIntegration/BUILD_CONFIGURATION.md,
-				PaykitIntegration/FFI/PubkyNoise.swift,
 				PipBackgroundHandler.swift,
 				PipSDK.swift,
 				PipSessionStore.swift,

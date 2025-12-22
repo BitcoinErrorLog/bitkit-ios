@@ -761,6 +761,27 @@ public final class PubkyRingBridge {
         
         Logger.info("Paykit setup callback received for \(pubkey.prefix(12))...", context: "PubkyRingBridge")
         
+        // Always cache the session directly for robustness
+        // This ensures session is available even if called outside of requestPaykitSetup flow
+        sessionCache[session.pubkey] = session
+        persistSession(session)
+        
+        // Cache noise keypairs if present
+        if let kp0 = keypair0 {
+            let cacheKey0 = "\(kp0.deviceId):\(kp0.epoch)"
+            keypairCache[cacheKey0] = kp0
+            if let secretKeyData = kp0.secretKey.data(using: .utf8) {
+                NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp0.deviceId, epoch: UInt32(kp0.epoch))
+            }
+        }
+        if let kp1 = keypair1 {
+            let cacheKey1 = "\(kp1.deviceId):\(kp1.epoch)"
+            keypairCache[cacheKey1] = kp1
+            if let secretKeyData = kp1.secretKey.data(using: .utf8) {
+                NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp1.deviceId, epoch: UInt32(kp1.epoch))
+            }
+        }
+        
         pendingPaykitSetupContinuation?.resume(returning: result)
         pendingPaykitSetupContinuation = nil
         

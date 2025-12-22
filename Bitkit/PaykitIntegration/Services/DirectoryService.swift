@@ -29,10 +29,19 @@ public struct PubkyConfig {
     /// Pubky app URL for staging
     public static let stagingAppUrl = "https://staging.pubky.app"
     
+    /// Paykit storage paths - matching paykit-lib conventions
+    public static let paykitPathPrefix = "/pub/paykit.app/v0/"
+    public static let paymentRequestsPath = "/pub/paykit.app/v0/requests/"
+    
     /// Get the homeserver base URL for directory operations
     public static func homeserverUrl(for homeserver: String = defaultHomeserver) -> String {
         // The homeserver pubkey is used as the base for directory operations
         return homeserver
+    }
+    
+    /// Get the path for a payment request
+    public static func paymentRequestPath(requestId: String) -> String {
+        return "\(paymentRequestsPath)\(requestId)"
     }
 }
 
@@ -46,7 +55,9 @@ public final class DirectoryService {
     private var directoryOps: DirectoryOperationsAsync?
     private var unauthenticatedTransport: UnauthenticatedTransportFfi?
     private var authenticatedTransport: AuthenticatedTransportFfi?
+    private var authenticatedAdapter: PubkyAuthenticatedStorageAdapter?
     private var homeserverBaseURL: String?
+    private var ownerPubkey: String?
     
     private init() {
         // Create directory operations manager
@@ -81,7 +92,9 @@ public final class DirectoryService {
     ///   - homeserverBaseURL: The homeserver pubkey (defaults to PubkyConfig.defaultHomeserver)
     public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: String, homeserverBaseURL: String? = nil) {
         self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.defaultHomeserver
+        self.ownerPubkey = ownerPubkey
         let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverBaseURL: self.homeserverBaseURL)
+        self.authenticatedAdapter = adapter
         authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: ownerPubkey)
     }
     
@@ -91,6 +104,7 @@ public final class DirectoryService {
         
         // Configure authenticated transport
         let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverBaseURL: homeserverBaseURL)
+        self.ownerPubkey = session.pubkey
         authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: session.pubkey)
         
         // Also configure unauthenticated transport
@@ -198,6 +212,84 @@ public final class DirectoryService {
             Logger.info("Removed payment method: \(methodId)", context: "DirectoryService")
         } catch {
             Logger.error("Failed to remove payment method \(methodId): \(error)", context: "DirectoryService")
+            throw DirectoryError.publishFailed(error.localizedDescription)
+        }
+    }
+    
+    // MARK: - Cross-Device Payment Request Storage
+    
+    /// Publish a payment request to Pubky storage for async retrieval.
+    /// Stores the request at: /pub/paykit.app/v0/requests/{requestId}
+    /// on the sender's homeserver so the recipient can fetch it later.
+    public func publishPaymentRequest(_ request: BitkitPaymentRequest) async throws {
+        guard let ownerPubkey = self.ownerPubkey else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        
+        guard let requestData = try? encoder.encode(request) else {
+            throw DirectoryError.publishFailed("Failed to encode payment request")
+        }
+        
+        let path = PubkyConfig.paymentRequestPath(requestId: request.id)
+        
+        do {
+            // Use the proper Pubky SDK sessionPut which uses the cached session
+            try await PubkySDKService.shared.sessionPut(pubkey: ownerPubkey, path: path, content: requestData)
+            Logger.info("Published payment request: \(request.id) to pubky://\(ownerPubkey.prefix(12))...\(path)", context: "DirectoryService")
+        } catch {
+            Logger.error("Failed to publish payment request \(request.id): \(error)", context: "DirectoryService")
+            throw DirectoryError.publishFailed(error.localizedDescription)
+        }
+    }
+    
+    /// Fetch a payment request from a sender's Pubky storage.
+    /// Retrieves from: pubky://{senderPubkey}/pub/paykit.app/v0/requests/{requestId}
+    public func fetchPaymentRequest(requestId: String, senderPubkey: String) async -> BitkitPaymentRequest? {
+        let path = PubkyConfig.paymentRequestPath(requestId: requestId)
+        
+        // Use the proper pubky:// URI which uses DHT/Pkarr resolution
+        let pubkyUri = "pubky://\(senderPubkey)\(path)"
+        Logger.debug("Fetching payment request from: \(pubkyUri)", context: "DirectoryService")
+        
+        do {
+            let requestData = try await PubkySDKService.shared.publicGet(uri: pubkyUri)
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .millisecondsSince1970
+            
+            let request = try decoder.decode(BitkitPaymentRequest.self, from: requestData)
+            Logger.info("Successfully fetched payment request \(requestId) from \(senderPubkey.prefix(12))...", context: "DirectoryService")
+            return request
+        } catch {
+            // NotFound errors are expected when the request doesn't exist
+            if let pubkyError = error as? PubkyError, case .NotFound = pubkyError {
+                Logger.debug("Payment request \(requestId) not found at \(senderPubkey.prefix(12))...", context: "DirectoryService")
+                return nil
+            }
+            Logger.error("Failed to fetch payment request \(requestId) from \(senderPubkey): \(error)", context: "DirectoryService")
+            return nil
+        }
+    }
+    
+    /// Remove a payment request from storage (after it's been processed)
+    public func removePaymentRequest(requestId: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let path = PubkyConfig.paymentRequestPath(requestId: requestId)
+        
+        do {
+            let result = adapter.delete(path: path)
+            if !result.success {
+                throw DirectoryError.publishFailed(result.error ?? "Unknown error")
+            }
+            Logger.info("Removed payment request: \(requestId)", context: "DirectoryService")
+        } catch {
+            Logger.error("Failed to remove payment request \(requestId): \(error)", context: "DirectoryService")
             throw DirectoryError.publishFailed(error.localizedDescription)
         }
     }

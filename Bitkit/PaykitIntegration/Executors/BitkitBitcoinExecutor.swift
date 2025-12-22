@@ -122,16 +122,22 @@ public final class BitkitBitcoinExecutor: BitcoinExecutorFfi {
         }
         
         for payment in payments {
-            // Check if this is an on-chain payment matching the txid
-            if case .onchain = payment.kind {
-                // LDK doesn't directly expose txid in PaymentDetails
-                // We would need to track this separately or use esplora/electrum
-                continue
+            if case let .onchain(paymentTxid, _) = payment.kind {
+                if paymentTxid == txid {
+                    let feeSats = (payment.feePaidMsat ?? 0) / 1000
+                    return BitcoinTxResultFfi(
+                        txid: txid,
+                        rawTx: nil,
+                        vout: 0,
+                        feeSats: feeSats,
+                        feeRate: 1.0,
+                        blockHeight: nil,
+                        confirmations: payment.status == .succeeded ? 1 : 0
+                    )
+                }
             }
         }
         
-        // Transaction lookup requires external block explorer integration
-        // For now, return nil and document this limitation
         return nil
     }
     

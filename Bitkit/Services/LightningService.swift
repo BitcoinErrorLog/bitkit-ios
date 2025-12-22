@@ -34,7 +34,7 @@ public class LightningService {
 
         currentWalletIndex = walletIndex
 
-        var config = defaultConfig()
+        var config = LDKNode.defaultConfig()
         let ldkStoragePath = Env.ldkStorage(walletIndex: walletIndex).path
         config.storageDirPath = ldkStoragePath
         config.network = Env.network

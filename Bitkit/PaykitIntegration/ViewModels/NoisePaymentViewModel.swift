@@ -129,7 +129,7 @@ class NoisePaymentViewModel: ObservableObject {
             paymentResponse = NoisePaymentResponse(
                 success: true,
                 receiptId: request.receiptId,
-                confirmedAt: Date(),
+                confirmedAt: Int(Date().timeIntervalSince1970),
                 errorCode: nil,
                 errorMessage: nil
             )

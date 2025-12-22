@@ -658,10 +658,10 @@ class ProfileViewModel: ObservableObject {
             
             // Put profile to homeserver using the active session from Pubky SDK
             try await PubkySDKService.shared.sessionPut(
-                pubkey: pubkyId,
-                path: "/pub/pubky.app/profile.json",
-                content: jsonData
-            )
+                    pubkey: pubkyId,
+                    path: "/pub/pubky.app/profile.json",
+                    content: jsonData
+                )
             
             originalName = trimmedName
             originalBio = trimmedBio
