@@ -2,6 +2,20 @@
 
 This module integrates the Paykit payment coordination protocol with Bitkit iOS.
 
+## Production Integration Guide
+
+**For complete production integration instructions, see:**
+- **[Bitkit + Paykit Integration Master Guide](https://github.com/BitcoinErrorLog/paykit-rs/blob/main/docs/BITKIT_PAYKIT_INTEGRATION_MASTERGUIDE.md)**
+
+This comprehensive guide covers:
+- Building paykit-rs and pubky-noise from source
+- XCFramework integration (PaykitMobile + PubkyNoise)
+- Pubky Ring communication and session management
+- Key derivation and NoiseKeyCache
+- Complete Noise protocol payment flows
+- Background tasks (SessionRefreshService, PaykitPollingService)
+- Production configuration and security checklist
+
 ## Overview
 
 Paykit enables Bitkit to execute payments through a standardized protocol that supports:
