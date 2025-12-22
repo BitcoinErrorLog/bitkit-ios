@@ -27,7 +27,7 @@ The following steps have been automated:
 ### Step 1: Build XCFrameworks
 
 ```bash
-cd paykit-rs-master/paykit-mobile
+cd paykit-rs/paykit-mobile
 ./build-ios.sh
 ```
 

@@ -29,7 +29,7 @@ Clone these repositories into the same parent directory:
 vibes/
 ├── bitkit-ios/
 ├── pubky-ring/
-└── pubky-core-main/  # Optional: for local homeserver
+└── pubky-core/  # Optional: for local homeserver
 ```
 
 ### Network Requirements
@@ -77,7 +77,7 @@ Both apps must use the same homeserver. Options:
 
 **Option A: Local Homeserver (Recommended for Testing)**
 ```bash
-cd pubky-core-main
+cd pubky-core
 
 # Build and run homeserver
 cargo run -p pubky-homeserver -- --port 8080

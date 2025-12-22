@@ -5,7 +5,7 @@ This directory contains pre-built XCFrameworks for Paykit and Pubky-Noise integr
 ## Current Approach (Interim)
 
 Libraries are currently copied from source builds:
-- `PaykitMobile.xcframework` - from `paykit-rs-master/paykit-mobile`
+- `PaykitMobile.xcframework` - from `paykit-rs/paykit-mobile`
 - `PubkyNoise.xcframework` - from `pubky-noise-main`
 
 ## Future: Swift Package Manager
@@ -25,7 +25,7 @@ If you need to rebuild the libraries:
 
 ```bash
 # PaykitMobile
-cd paykit-rs-master/paykit-mobile
+cd paykit-rs/paykit-mobile
 ./build-ios.sh --framework
 
 # PubkyNoise  

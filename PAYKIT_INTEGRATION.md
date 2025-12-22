@@ -223,7 +223,7 @@ Task {
 
 ## References
 
-- Paykit Roadmap: `paykit-rs-master/PAYKIT_ROADMAP.md`
-- Phase 3 Report: `paykit-rs-master/FINAL_DELIVERY_REPORT.md`
+- Paykit Roadmap: `paykit-rs/PAYKIT_ROADMAP.md`
+- Phase 3 Report: `paykit-rs/FINAL_DELIVERY_REPORT.md`
 - Noise Integration Review: `NOISE_INTEGRATION_REVIEW.md`
 
