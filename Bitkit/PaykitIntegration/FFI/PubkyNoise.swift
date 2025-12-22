@@ -1270,7 +1270,10 @@ public enum FfiNoiseError: Swift.Error {
     )
     case Decryption(message: String
     )
-    case RateLimited(message: String
+    case RateLimited(message: String, 
+        /**
+         * Optional retry delay in milliseconds.
+         */retryAfterMs: UInt64?
     )
     case MaxSessionsExceeded
     case SessionExpired(message: String
@@ -1326,7 +1329,8 @@ public struct FfiConverterTypeFfiNoiseError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
             )
         case 13: return .RateLimited(
-            message: try FfiConverterString.read(from: &buf)
+            message: try FfiConverterString.read(from: &buf), 
+            retryAfterMs: try FfiConverterOptionUInt64.read(from: &buf)
             )
         case 14: return .MaxSessionsExceeded
         case 15: return .SessionExpired(
@@ -1407,9 +1411,10 @@ public struct FfiConverterTypeFfiNoiseError: FfiConverterRustBuffer {
             FfiConverterString.write(message, into: &buf)
             
         
-        case let .RateLimited(message):
+        case let .RateLimited(message,retryAfterMs):
             writeInt(&buf, Int32(13))
             FfiConverterString.write(message, into: &buf)
+            FfiConverterOptionUInt64.write(retryAfterMs, into: &buf)
             
         
         case .MaxSessionsExceeded:
@@ -1463,6 +1468,30 @@ extension FfiNoiseError: Foundation.LocalizedError {
 
 
 
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1548,8 +1577,15 @@ public func defaultConfig() -> FfiMobileConfig  {
     )
 })
 }
-public func deriveDeviceKey(seed: Data, deviceId: Data, epoch: UInt32) -> Data  {
-    return try!  FfiConverterData.lift(try! rustCall() {
+/**
+ * Derive an X25519 device key from seed, device ID, and epoch.
+ *
+ * # Errors
+ *
+ * Returns `FfiNoiseError::Other` if key derivation fails (extremely rare).
+ */
+public func deriveDeviceKey(seed: Data, deviceId: Data, epoch: UInt32)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeFfiNoiseError_lift) {
     uniffi_pubky_noise_fn_func_derive_device_key(
         FfiConverterData.lower(seed),
         FfiConverterData.lower(deviceId),
@@ -1592,7 +1628,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_pubky_noise_checksum_func_default_config() != 63887) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_pubky_noise_checksum_func_derive_device_key() != 29541) {
+    if (uniffi_pubky_noise_checksum_func_derive_device_key() != 2834) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubky_noise_checksum_func_performance_config() != 613) {
