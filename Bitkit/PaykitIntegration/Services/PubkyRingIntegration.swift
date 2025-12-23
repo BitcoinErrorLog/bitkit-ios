@@ -70,6 +70,47 @@ public final class PubkyRingIntegration {
         return keyManager.hasNoiseKeypair
     }
     
+    /// Get or refresh X25519 keypair with automatic cache miss recovery
+    ///
+    /// If the keypair is cached, returns it immediately.
+    /// If not cached, automatically requests new setup from Ring.
+    ///
+    /// - Parameters:
+    ///   - deviceId: The device ID used for derivation context
+    ///   - epoch: The epoch for this keypair
+    /// - Returns: The keypair (either cached or freshly retrieved)
+    /// - Throws: PubkyRingError if Ring request fails
+    public func getOrRefreshKeypair(deviceId: String, epoch: UInt32) async throws -> X25519Keypair {
+        // Try cache first
+        if let cached = try? getCachedKeypair(deviceId: deviceId, epoch: epoch) {
+            return cached
+        }
+        
+        // Cache miss - request new setup from Ring
+        Logger.warn("Keypair cache miss for epoch \(epoch), requesting from Ring", context: "PubkyRingIntegration")
+        let result = try await PubkyRingBridge.shared.requestPaykitSetup()
+        
+        // The bridge callback handler will have cached the result
+        // Try retrieving again
+        if let cached = try? getCachedKeypair(deviceId: deviceId, epoch: epoch) {
+            return cached
+        }
+        
+        // Still not available - this shouldn't happen
+        throw PaykitRingError.noKeypairCached(
+            "Failed to refresh keypair from Ring for epoch \(epoch)"
+        )
+    }
+    
+    /// Get the current keypair with automatic refresh on cache miss
+    /// - Returns: The cached or refreshed keypair for current epoch
+    /// - Throws: PubkyRingError if Ring request fails
+    public func getCurrentKeypairOrRefresh() async throws -> X25519Keypair {
+        let deviceId = keyManager.getDeviceId()
+        let epoch = keyManager.getCurrentEpoch()
+        return try await getOrRefreshKeypair(deviceId: deviceId, epoch: epoch)
+    }
+    
     /// Cache a keypair received from Pubky Ring
     /// Called by PubkyRingBridge when receiving keypairs via callback
     public func cacheKeypair(_ keypair: X25519Keypair, deviceId: String, epoch: UInt32) throws {
