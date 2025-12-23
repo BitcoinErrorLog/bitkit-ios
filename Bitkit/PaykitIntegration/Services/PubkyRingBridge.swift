@@ -893,8 +893,18 @@ public final class PubkyRingBridge {
             }
         }
         
-        // TODO: Delete the handoff file from homeserver after fetching
-        // This requires an authenticated session which we just received
+        // Delete handoff file from homeserver to minimize attack window
+        Task {
+            do {
+                let handoffPath = "/pub/paykit.app/v0/handoff/\(requestId)"
+                let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverURL: PubkyConfig.defaultHomeserverURL)
+                let transport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: session.pubkey)
+                try await PubkyStorageAdapter.shared.deleteFile(path: handoffPath, transport: transport)
+                Logger.info("Deleted secure handoff payload: \(requestId)", context: "PubkyRingBridge")
+            } catch {
+                Logger.warn("Failed to delete handoff payload: \(error)", context: "PubkyRingBridge")
+            }
+        }
         
         return result
     }
