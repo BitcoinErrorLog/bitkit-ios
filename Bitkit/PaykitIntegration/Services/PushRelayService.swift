@@ -303,21 +303,10 @@ public final class PushRelayService {
         }
     }
     
-    private func signMessage(_ message: String, pubkey: String) throws -> String {
-        // TODO: Implement Ed25519 signing via PubkyRingBridge
-        // For now, this is a placeholder that would be replaced with actual signing
-        // The signature would be created by Ring since it holds the Ed25519 secret key
-        //
-        // In production, this would:
-        // 1. Send sign request to Ring via deep link or cached session
-        // 2. Ring signs with Ed25519 secret key
-        // 3. Return signature hex
-        //
-        // For the reference implementation, we'll use a mock signature
-        // that the relay service can validate against the pubkey
-        
-        Logger.warn("Using placeholder signature - implement Ed25519 signing via Ring", context: "PushRelayService")
-        return "placeholder_signature_\(message.prefix(32))"
+    private func signMessage(_ message: String, pubkey: String) async throws -> String {
+        // Request Ed25519 signature from Pubky Ring
+        // Ring holds the secret key and performs the signing
+        return try await PubkyRingBridge.shared.requestSignature(message: message)
     }
     
     private func generateNonce() -> String {
