@@ -193,23 +193,31 @@ public final class PubkyRingBridge {
     /// - Gets everything in a single user interaction
     /// - Ensures noise keys are available even if Ring is later unavailable
     /// - Includes both epoch 0 and epoch 1 keypairs for key rotation
+    /// - Uses secure handoff (no secrets in URL)
     ///
+    /// - Parameter useSecureHandoff: If true (default), uses secure handoff where secrets are
+    ///   stored on homeserver rather than passed in URL. Set to false for legacy mode.
     /// - Returns: PaykitSetupResult containing session and noise keypairs
     /// - Throws: PubkyRingError if request fails or app not installed
-    public func requestPaykitSetup() async throws -> PaykitSetupResult {
+    public func requestPaykitSetup(useSecureHandoff: Bool = true) async throws -> PaykitSetupResult {
         guard isPubkyRingInstalled else {
             throw PubkyRingError.appNotInstalled
         }
         
         let actualDeviceId = self.deviceId
         let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.paykitSetup)"
-        let requestUrl = "\(pubkyRingScheme)://paykit-connect?deviceId=\(actualDeviceId)&callback=\(callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl)"
+        let encodedCallback = callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl
+        
+        var requestUrl = "\(pubkyRingScheme)://paykit-connect?deviceId=\(actualDeviceId)&callback=\(encodedCallback)"
+        
+        // For secure handoff, we don't need an ephemeral key - Ring stores at an unguessable path
+        // and returns the request_id which Bitkit uses to fetch the payload
         
         guard let url = URL(string: requestUrl) else {
             throw PubkyRingError.invalidUrl
         }
         
-        Logger.info("Requesting Paykit setup from Pubky Ring", context: "PubkyRingBridge")
+        Logger.info("Requesting Paykit setup from Pubky Ring (secure handoff: \(useSecureHandoff))", context: "PubkyRingBridge")
         
         let result = try await withCheckedThrowingContinuation { continuation in
             self.pendingPaykitSetupContinuation = continuation
@@ -707,7 +715,29 @@ public final class PubkyRingBridge {
             }
         }
         
-        // Required session parameters
+        // Check for secure handoff mode
+        if params["mode"] == "secure_handoff" {
+            guard let pubkey = params["pubky"],
+                  let requestId = params["request_id"] else {
+                pendingPaykitSetupContinuation?.resume(throwing: PubkyRingError.missingParameters)
+                pendingPaykitSetupContinuation = nil
+                return true
+            }
+            
+            // Fetch payload from homeserver asynchronously
+            Task {
+                do {
+                    let result = try await fetchSecureHandoffPayload(pubkey: pubkey, requestId: requestId)
+                    pendingPaykitSetupContinuation?.resume(returning: result)
+                } catch {
+                    pendingPaykitSetupContinuation?.resume(throwing: error)
+                }
+                pendingPaykitSetupContinuation = nil
+            }
+            return true
+        }
+        
+        // Legacy mode: secrets in URL
         guard let pubkey = params["pubky"],
               let sessionSecret = params["session_secret"],
               let deviceId = params["device_id"] else {
@@ -786,6 +816,87 @@ public final class PubkyRingBridge {
         pendingPaykitSetupContinuation = nil
         
         return true
+    }
+    
+    /// Fetch secure handoff payload from homeserver
+    private func fetchSecureHandoffPayload(pubkey: String, requestId: String) async throws -> PaykitSetupResult {
+        let handoffUri = "pubky://\(pubkey)/pub/paykit.app/v0/handoff/\(requestId)"
+        
+        Logger.info("Fetching secure handoff payload from \(handoffUri.prefix(50))...", context: "PubkyRingBridge")
+        
+        // Fetch payload using PubkySDKService
+        let data = try await PubkySDKService.shared.publicGet(uri: handoffUri)
+        
+        // Parse JSON payload
+        guard let payload = try? JSONDecoder().decode(SecureHandoffPayload.self, from: data) else {
+            throw PubkyRingError.invalidCallback
+        }
+        
+        // Validate payload hasn't expired
+        if Date().timeIntervalSince1970 * 1000 > Double(payload.expiresAt) {
+            throw PubkyRingError.timeout
+        }
+        
+        // Build session
+        let session = PubkySession(
+            pubkey: payload.pubky,
+            sessionSecret: payload.sessionSecret,
+            capabilities: payload.capabilities,
+            createdAt: Date(timeIntervalSince1970: Double(payload.createdAt) / 1000),
+            expiresAt: nil
+        )
+        
+        // Build noise keypairs
+        var keypair0: NoiseKeypair? = nil
+        var keypair1: NoiseKeypair? = nil
+        
+        for kp in payload.noiseKeypairs {
+            let keypair = NoiseKeypair(
+                publicKey: kp.publicKey,
+                secretKey: kp.secretKey,
+                deviceId: payload.deviceId,
+                epoch: UInt64(kp.epoch)
+            )
+            
+            if kp.epoch == 0 {
+                keypair0 = keypair
+            } else if kp.epoch == 1 {
+                keypair1 = keypair
+            }
+        }
+        
+        let result = PaykitSetupResult(
+            session: session,
+            deviceId: payload.deviceId,
+            noiseKeypair0: keypair0,
+            noiseKeypair1: keypair1
+        )
+        
+        Logger.info("Secure handoff payload received for \(payload.pubky.prefix(12))...", context: "PubkyRingBridge")
+        
+        // Cache session and keypairs
+        sessionCache[session.pubkey] = session
+        persistSession(session)
+        
+        if let kp0 = keypair0 {
+            let cacheKey0 = "\(kp0.deviceId):\(kp0.epoch)"
+            keypairCache[cacheKey0] = kp0
+            if let secretKeyData = kp0.secretKey.data(using: .utf8) {
+                NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp0.deviceId, epoch: UInt32(kp0.epoch))
+            }
+        }
+        if let kp1 = keypair1 {
+            let cacheKey1 = "\(kp1.deviceId):\(kp1.epoch)"
+            keypairCache[cacheKey1] = kp1
+            if let secretKeyData = kp1.secretKey.data(using: .utf8) {
+                NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp1.deviceId, epoch: UInt32(kp1.epoch))
+            }
+        }
+        
+        // TODO: Delete the handoff file from homeserver after fetching
+        // This requires an authenticated session which we just received
+        
+        return result
     }
     
     private func handleProfileCallback(url: URL) -> Bool {
@@ -1124,6 +1235,41 @@ public struct NoiseKeypair: Codable {
     public let secretKey: String
     public let deviceId: String
     public let epoch: UInt64
+}
+
+/// Secure handoff payload structure (stored on homeserver by Ring)
+private struct SecureHandoffPayload: Codable {
+    let version: Int
+    let pubky: String
+    let sessionSecret: String
+    let capabilities: [String]
+    let deviceId: String
+    let noiseKeypairs: [SecureHandoffNoiseKeypair]
+    let createdAt: Int64
+    let expiresAt: Int64
+    
+    enum CodingKeys: String, CodingKey {
+        case version
+        case pubky
+        case sessionSecret = "session_secret"
+        case capabilities
+        case deviceId = "device_id"
+        case noiseKeypairs = "noise_keypairs"
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+    }
+}
+
+private struct SecureHandoffNoiseKeypair: Codable {
+    let epoch: Int
+    let publicKey: String
+    let secretKey: String
+    
+    enum CodingKeys: String, CodingKey {
+        case epoch
+        case publicKey = "public_key"
+        case secretKey = "secret_key"
+    }
 }
 
 /// Result from combined Paykit setup request
