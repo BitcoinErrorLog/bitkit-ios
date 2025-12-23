@@ -217,24 +217,68 @@ public final class HomeserverResolver {
     /// Override for testing/development
     public var overrideURL: HomeserverURL?
     
-    private init() {}
+    /// Cache of resolved URLs with expiry
+    private var cache: [HomeserverPubkey: (url: HomeserverURL, expires: Date)] = [:]
+    
+    /// Known homeserver mappings (pubkey → URL)
+    private var knownHomeservers: [String: String] = [:]
+    
+    private init() {
+        loadDefaultMappings()
+    }
+    
+    /// Load default homeserver mappings
+    private func loadDefaultMappings() {
+        // Production homeserver (Synonym mainnet)
+        knownHomeservers["8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"] = "https://homeserver.pubky.app"
+        
+        // Staging homeserver (Synonym staging)  
+        knownHomeservers["ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy"] = "https://staging.homeserver.pubky.app"
+        
+        // Add more known homeservers here as needed
+    }
+    
+    /// Add a custom homeserver mapping
+    public func addMapping(pubkey: HomeserverPubkey, url: HomeserverURL) {
+        knownHomeservers[pubkey.value] = url.value
+        // Invalidate cache for this pubkey
+        cache.removeValue(forKey: pubkey)
+    }
     
     /// Resolve a homeserver pubkey to its URL.
     ///
-    /// In production, this would perform DNS-based discovery.
-    /// For now, it uses the default homeserver URL.
+    /// Resolution order:
+    /// 1. Check override (for testing)
+    /// 2. Check cache
+    /// 3. Check known mappings
+    /// 4. Fall back to default
     ///
     /// - Parameter pubkey: The homeserver's pubkey
     /// - Returns: The resolved URL
     public func resolve(pubkey: HomeserverPubkey) -> HomeserverURL {
-        // Check for override (testing/development)
+        // 1. Check for override (testing/development)
         if let override = overrideURL {
             return override
         }
         
-        // TODO: Implement DNS-based resolution
-        // For now, all pubkeys resolve to the default homeserver
-        return PubkyConfig.defaultHomeserverURL
+        // 2. Check cache
+        if let cached = cache[pubkey], cached.expires > Date() {
+            return cached.url
+        }
+        
+        // 3. Check known mappings
+        if let urlString = knownHomeservers[pubkey.value] {
+            let url = HomeserverURL(urlString)
+            // Cache for 1 hour
+            cache[pubkey] = (url, Date().addingTimeInterval(3600))
+            return url
+        }
+        
+        // 4. Fall back to default
+        // TODO: Implement DNS-based resolution via _pubky.<pubkey>
+        let defaultURL = PubkyConfig.defaultHomeserverURL
+        cache[pubkey] = (defaultURL, Date().addingTimeInterval(3600))
+        return defaultURL
     }
     
     /// Construct a full URL for accessing a user's data on a homeserver.
@@ -257,6 +301,11 @@ public final class HomeserverResolver {
         // For now, all sessions use the default homeserver
         // In production, this would be stored with the session
         return PubkyConfig.defaultHomeserverURL
+    }
+    
+    /// Clear the resolution cache
+    public func clearCache() {
+        cache.removeAll()
     }
 }
 
