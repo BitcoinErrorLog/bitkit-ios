@@ -125,6 +125,7 @@ internal struct NoiseMessage: Codable {
 /// Service errors
 public enum NoisePaymentError: LocalizedError {
     case noIdentity
+    case noKeypair
     case keyDerivationFailed(String)
     case endpointNotFound
     case invalidEndpoint(String)
@@ -141,6 +142,8 @@ public enum NoisePaymentError: LocalizedError {
         switch self {
         case .noIdentity:
             return "No identity configured"
+        case .noKeypair:
+            return "No noise keypair available. Please reconnect to Pubky Ring."
         case .keyDerivationFailed(let msg):
             return "Failed to derive encryption keys: \(msg)"
         case .endpointNotFound:
@@ -186,8 +189,14 @@ public final class NoisePaymentService {
     private func getNoiseManager(isServer: Bool) throws -> FfiNoiseManager {
         if let existing = noiseManager { return existing }
         
-        guard let seedData = PaykitKeyManager.shared.getSecretKeyBytes() else {
-            throw NoisePaymentError.noIdentity
+        // Get cached X25519 keypair from Ring (no local Ed25519 derivation)
+        guard let keypair = PaykitKeyManager.shared.getCachedNoiseKeypair() else {
+            throw NoisePaymentError.noKeypair
+        }
+        
+        // Use X25519 secret key as seed for Noise manager
+        guard let seedData = Data(hex: keypair.secretKeyHex) else {
+            throw NoisePaymentError.noKeypair
         }
         
         let deviceId = PaykitKeyManager.shared.getDeviceId()

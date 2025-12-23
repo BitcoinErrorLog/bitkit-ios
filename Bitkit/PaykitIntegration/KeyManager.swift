@@ -2,14 +2,21 @@
 //  KeyManager.swift
 //  Bitkit
 //
-//  Manages Ed25519 identity keys and X25519 device keys for Paykit
-//  Uses Bitkit's Keychain for secure storage
+//  Manages device identity and X25519 noise keys for Paykit
+//  Ed25519 master keys are owned by Pubky Ring - Bitkit only caches derived keys
 //
 
 import Foundation
 // PaykitMobile types are available from FFI/PaykitMobile.swift
 
-/// Manages Ed25519 identity keys and X25519 device keys for Paykit
+/// Manages device identity and X25519 noise keys for Paykit
+/// 
+/// SECURITY: Ed25519 master keys are owned exclusively by Pubky Ring.
+/// Bitkit only stores:
+/// - Public key (z-base32) for identification
+/// - Device ID for key derivation context
+/// - Epoch for key rotation
+/// - Cached X25519 noise keypairs (derived by Ring)
 public final class PaykitKeyManager {
     
     public static let shared = PaykitKeyManager()
@@ -17,11 +24,10 @@ public final class PaykitKeyManager {
     private let keychain: PaykitKeychainStorage
     
     private enum Keys {
-        static let secretKey = "paykit.identity.secret"
-        static let publicKey = "paykit.identity.public"
         static let publicKeyZ32 = "paykit.identity.public.z32"
         static let deviceId = "paykit.device.id"
         static let epoch = "paykit.device.epoch"
+        static let noiseKeypairPrefix = "paykit.noise.keypair."
     }
     
     private var deviceId: String {
@@ -46,36 +52,11 @@ public final class PaykitKeyManager {
         self.keychain = PaykitKeychainStorage()
     }
     
-    /// Get or create Ed25519 identity
-    public func getOrCreateIdentity() async throws -> Ed25519Keypair {
-        if let secretData = try? keychain.retrieve(key: Keys.secretKey),
-           let secretHex = String(data: secretData, encoding: .utf8) {
-            return try ed25519KeypairFromSecret(secretKeyHex: secretHex)
-        }
-        return try await generateNewIdentity()
-    }
+    // MARK: - Public Key (from Ring)
     
-    /// Generate a new Ed25519 identity
-    public func generateNewIdentity() async throws -> Ed25519Keypair {
-        let keypair = try generateEd25519Keypair()
-        
-        // Store in keychain
-        try keychain.store(key: Keys.secretKey, data: keypair.secretKeyHex.data(using: .utf8)!)
-        try keychain.store(key: Keys.publicKey, data: keypair.publicKeyHex.data(using: .utf8)!)
-        try keychain.store(key: Keys.publicKeyZ32, data: keypair.publicKeyZ32.data(using: .utf8)!)
-        
-        return keypair
-    }
-    
-    /// Store an existing identity (e.g., from Pubky Ring session)
-    public func storeIdentity(secretKeyHex: String, publicKeyZ32: String) throws {
-        // Store in keychain
-        try keychain.store(key: Keys.secretKey, data: secretKeyHex.data(using: .utf8)!)
-        try keychain.store(key: Keys.publicKeyZ32, data: publicKeyZ32.data(using: .utf8)!)
-        
-        // Derive and store publicKeyHex from secret
-        let keypair = try ed25519KeypairFromSecret(secretKeyHex: secretKeyHex)
-        try keychain.store(key: Keys.publicKey, data: keypair.publicKeyHex.data(using: .utf8)!)
+    /// Store public key received from Pubky Ring
+    public func storePublicKey(pubkeyZ32: String) throws {
+        try keychain.store(key: Keys.publicKeyZ32, data: pubkeyZ32.data(using: .utf8)!)
     }
     
     /// Get current public key in z-base32 format
@@ -87,57 +68,67 @@ public final class PaykitKeyManager {
         return pubkey
     }
     
-    /// Get current secret key hex
-    public func getSecretKeyHex() -> String? {
-        guard let data = try? keychain.retrieve(key: Keys.secretKey),
-              let secret = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return secret
+    /// Check if we have an identity configured
+    public var hasIdentity: Bool {
+        return getCurrentPublicKeyZ32() != nil
     }
     
-    /// Get secret key as bytes
-    public func getSecretKeyBytes() -> Data? {
-        guard let hex = getSecretKeyHex() else { return nil }
-        return Data(hex: hex)
-    }
+    // MARK: - Device Management
     
-    /// Derive X25519 keypair for Noise protocol
-    public func deriveNoiseKeypair(epoch: UInt32? = nil) async throws -> X25519Keypair {
-        guard let secretHex = getSecretKeyHex() else {
-            throw PaykitKeyError.noIdentity
-        }
-        let deviceIdValue = self.deviceId
-        let epochValue = epoch ?? currentEpoch
-        
-        return try deriveX25519Keypair(
-            ed25519SecretHex: secretHex,
-            deviceId: deviceIdValue,
-            epoch: epochValue
-        )
-    }
-    
-    /// Get device ID
+    /// Get device ID (used for key derivation context)
     public func getDeviceId() -> String {
         return deviceId
     }
     
-    /// Get current epoch
+    /// Get current epoch (used for key rotation)
     public func getCurrentEpoch() -> UInt32 {
         return currentEpoch
     }
     
     /// Rotate keys by incrementing epoch
-    public func rotateKeys() async throws {
+    public func rotateKeys() throws {
         let newEpoch = currentEpoch + 1
         try keychain.store(key: Keys.epoch, data: String(newEpoch).data(using: .utf8)!)
     }
     
-    /// Delete identity
+    // MARK: - X25519 Noise Keypair Caching
+    
+    /// Cache an X25519 noise keypair received from Pubky Ring
+    /// - Parameters:
+    ///   - keypair: The X25519 keypair from Ring
+    ///   - epoch: The epoch this keypair was derived for
+    public func cacheNoiseKeypair(_ keypair: X25519Keypair, epoch: UInt32) throws {
+        let key = noiseKeypairKey(epoch: epoch)
+        let data = try encodeKeypair(keypair)
+        try keychain.store(key: key, data: data)
+    }
+    
+    /// Get cached X25519 noise keypair for a given epoch
+    /// - Parameter epoch: The epoch to retrieve keypair for (defaults to current)
+    /// - Returns: The cached keypair, or nil if not cached
+    public func getCachedNoiseKeypair(epoch: UInt32? = nil) -> X25519Keypair? {
+        let epochValue = epoch ?? currentEpoch
+        let key = noiseKeypairKey(epoch: epochValue)
+        guard let data = try? keychain.retrieve(key: key) else {
+            return nil
+        }
+        return try? decodeKeypair(data)
+    }
+    
+    /// Check if we have a cached noise keypair for the current epoch
+    public var hasNoiseKeypair: Bool {
+        return getCachedNoiseKeypair() != nil
+    }
+    
+    // MARK: - Cleanup
+    
+    /// Delete all Paykit identity data
     public func deleteIdentity() throws {
-        try? keychain.delete(key: Keys.secretKey)
-        try? keychain.delete(key: Keys.publicKey)
         try? keychain.delete(key: Keys.publicKeyZ32)
+        // Clean up noise keypairs for epochs 0-10 (reasonable range)
+        for epoch in 0..<10 {
+            try? keychain.delete(key: noiseKeypairKey(epoch: UInt32(epoch)))
+        }
     }
     
     // MARK: - Private
@@ -145,15 +136,43 @@ public final class PaykitKeyManager {
     private func generateNewDeviceId() -> String {
         return UUID().uuidString
     }
+    
+    private func noiseKeypairKey(epoch: UInt32) -> String {
+        return "\(Keys.noiseKeypairPrefix)\(deviceId).\(epoch)"
+    }
+    
+    private func encodeKeypair(_ keypair: X25519Keypair) throws -> Data {
+        // Store as JSON for simplicity
+        let dict: [String: String] = [
+            "publicKeyHex": keypair.publicKeyHex,
+            "secretKeyHex": keypair.secretKeyHex
+        ]
+        return try JSONSerialization.data(withJSONObject: dict)
+    }
+    
+    private func decodeKeypair(_ data: Data) throws -> X25519Keypair {
+        guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: String],
+              let publicKeyHex = dict["publicKeyHex"],
+              let secretKeyHex = dict["secretKeyHex"] else {
+            throw PaykitKeyError.invalidKeypairData
+        }
+        return X25519Keypair(publicKeyHex: publicKeyHex, secretKeyHex: secretKeyHex)
+    }
 }
 
 enum PaykitKeyError: LocalizedError {
     case noIdentity
+    case noNoiseKeypair
+    case invalidKeypairData
     
     var errorDescription: String? {
         switch self {
         case .noIdentity:
-            return "No identity configured. Please set up your identity first."
+            return "No identity configured. Please connect to Pubky Ring first."
+        case .noNoiseKeypair:
+            return "No noise keypair available. Please reconnect to Pubky Ring."
+        case .invalidKeypairData:
+            return "Failed to decode cached keypair data."
         }
     }
 }
