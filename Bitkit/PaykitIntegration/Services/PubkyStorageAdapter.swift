@@ -151,11 +151,11 @@ enum PubkyStorageError: LocalizedError {
 /// Makes HTTP requests to Pubky homeservers to read public data
 public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCallback {
     
-    private let homeserverBaseURL: String?
+    private let homeserverURL: HomeserverURL?
     private let session: URLSession
     
-    public init(homeserverBaseURL: String? = nil) {
-        self.homeserverBaseURL = homeserverBaseURL
+    public init(homeserverURL: HomeserverURL? = nil) {
+        self.homeserverURL = homeserverURL
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
@@ -163,8 +163,8 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     }
     
     public func get(ownerPubkey: String, path: String) -> StorageGetResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)/pubky\(ownerPubkey)\(path)"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)/pubky\(ownerPubkey)\(path)"
         } else {
             "https://_pubky.\(ownerPubkey)\(path)"
         }
@@ -207,8 +207,8 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     }
     
     public func list(ownerPubkey: String, prefix: String) -> StorageListResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)/pubky\(ownerPubkey)\(prefix)?shallow=true"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)/pubky\(ownerPubkey)\(prefix)?shallow=true"
         } else {
             "https://_pubky.\(ownerPubkey)\(prefix)?shallow=true"
         }
@@ -270,12 +270,12 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
 public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback {
     
     private let sessionId: String
-    private let homeserverBaseURL: String?
+    private let homeserverURL: HomeserverURL?
     private let session: URLSession
     
-    public init(sessionId: String, homeserverBaseURL: String? = nil) {
+    public init(sessionId: String, homeserverURL: HomeserverURL? = nil) {
         self.sessionId = sessionId
-        self.homeserverBaseURL = homeserverBaseURL
+        self.homeserverURL = homeserverURL
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
@@ -284,8 +284,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func put(path: String, content: String) -> StorageOperationResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)\(path)"
         } else {
             "https://homeserver.pubky.app\(path)"
         }
@@ -331,8 +331,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func get(path: String) -> StorageGetResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)\(path)"
         } else {
             "https://homeserver.pubky.app\(path)"
         }
@@ -379,8 +379,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func delete(path: String) -> StorageOperationResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)\(path)"
         } else {
             "https://homeserver.pubky.app\(path)"
         }

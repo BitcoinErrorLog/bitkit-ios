@@ -56,8 +56,8 @@ public final class DirectoryService {
     private var unauthenticatedTransport: UnauthenticatedTransportFfi?
     private var authenticatedTransport: AuthenticatedTransportFfi?
     private var authenticatedAdapter: PubkyAuthenticatedStorageAdapter?
-    private var homeserverBaseURL: String?
-    private var ownerPubkey: String?
+    private var homeserverURL: HomeserverURL?
+    private var ownerPubkey: OwnerPubkey?
     
     private init() {
         // Create directory operations manager
@@ -78,10 +78,10 @@ public final class DirectoryService {
     }
     
     /// Configure Pubky transport for directory operations
-    /// - Parameter homeserverBaseURL: The homeserver pubkey (defaults to PubkyConfig.defaultHomeserver)
-    public func configurePubkyTransport(homeserverBaseURL: String? = nil) {
-        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.defaultHomeserver
-        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: self.homeserverBaseURL)
+    /// - Parameter homeserverURL: The homeserver URL (defaults to resolved default homeserver)
+    public func configurePubkyTransport(homeserverURL: HomeserverURL? = nil) {
+        self.homeserverURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
+        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: self.homeserverURL!)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
     }
     
@@ -89,26 +89,26 @@ public final class DirectoryService {
     /// - Parameters:
     ///   - sessionId: The session ID from Pubky-ring
     ///   - ownerPubkey: The owner's public key
-    ///   - homeserverBaseURL: The homeserver pubkey (defaults to PubkyConfig.defaultHomeserver)
-    public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: String, homeserverBaseURL: String? = nil) {
-        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.defaultHomeserver
+    ///   - homeserverURL: The homeserver URL (defaults to resolved default homeserver)
+    public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: OwnerPubkey, homeserverURL: HomeserverURL? = nil) {
+        self.homeserverURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
         self.ownerPubkey = ownerPubkey
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverBaseURL: self.homeserverBaseURL)
+        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverURL: self.homeserverURL!)
         self.authenticatedAdapter = adapter
-        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: ownerPubkey)
+        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: ownerPubkey.value)
     }
     
     /// Configure transport using a Pubky session from Pubky-ring
     public func configureWithPubkySession(_ session: PubkySession) {
-        homeserverBaseURL = PubkyConfig.defaultHomeserver
+        homeserverURL = HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
         
         // Configure authenticated transport
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverBaseURL: homeserverBaseURL)
-        self.ownerPubkey = session.pubkey
+        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverURL: homeserverURL!)
+        self.ownerPubkey = OwnerPubkey(session.pubkey)
         authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: session.pubkey)
         
         // Also configure unauthenticated transport
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: homeserverURL!)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
         
         Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey)", context: "DirectoryService")
