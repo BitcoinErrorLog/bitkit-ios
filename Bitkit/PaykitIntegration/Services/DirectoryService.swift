@@ -520,12 +520,17 @@ public final class DirectoryService {
     /// Publish our push notification endpoint to the directory.
     /// This allows other users to discover how to wake our device for Noise connections.
     ///
+    /// - Warning: DEPRECATED - This publishes tokens publicly, enabling DoS attacks.
+    ///   Use `PushRelayService.register()` instead for secure push token registration.
+    ///   This method will be removed in a future release.
+    ///
     /// - Parameters:
     ///   - deviceToken: APNs/FCM device token
     ///   - platform: Platform identifier ("ios" or "android")
     ///   - noiseHost: Host for our Noise server
     ///   - noisePort: Port for our Noise server
     ///   - noisePubkey: Our Noise public key
+    @available(*, deprecated, message: "Use PushRelayService.register() for secure push registration")
     public func publishPushNotificationEndpoint(
         deviceToken: String,
         platform: String,
@@ -558,8 +563,13 @@ public final class DirectoryService {
     /// Discover push notification endpoint for a recipient.
     /// Used to send wake notifications before attempting Noise connections.
     ///
+    /// - Warning: DEPRECATED - Use `PushRelayService.wake()` instead.
+    ///   Direct discovery exposes tokens publicly. The push relay service
+    ///   handles routing without exposing tokens.
+    ///
     /// - Parameter recipientPubkey: The public key of the recipient
     /// - Returns: Push notification endpoint if found
+    @available(*, deprecated, message: "Use PushRelayService.wake() for secure wake notifications")
     public func discoverPushNotificationEndpoint(for recipientPubkey: String) async throws -> PushNotificationEndpoint? {
         let adapter = unauthenticatedTransport ?? {
             let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
