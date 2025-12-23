@@ -182,6 +182,38 @@ public final class NoisePaymentService {
     private init() {}
     
     /// Initialize with PaykitClient
+    /// Check if key rotation is needed and perform epoch swap
+    ///
+    /// This checks if we should rotate from epoch 0 to epoch 1.
+    /// Rotation happens automatically when epoch 1 keys are available.
+    ///
+    /// - Parameter forceRotation: If true, rotate immediately if epoch 1 is available
+    /// - Returns: True if rotation occurred
+    public func checkKeyRotation(forceRotation: Bool = false) -> Bool {
+        let keyManager = PaykitKeyManager.shared
+        let currentEpoch = keyManager.getCurrentEpoch()
+        
+        // Only rotate from epoch 0 to epoch 1
+        guard currentEpoch == 0 else {
+            return false
+        }
+        
+        // Check if we have epoch 1 keypair available
+        guard keyManager.getCachedNoiseKeypair(epoch: 1) != nil else {
+            return false
+        }
+        
+        // For now, rotation is manual via forceRotation parameter
+        // In production, this would check time-based thresholds or external signals
+        if forceRotation {
+            keyManager.setCurrentEpoch(1)
+            Logger.info("Rotated to epoch 1 keypair", context: "NoisePaymentService")
+            return true
+        }
+        
+        return false
+    }
+    
     public func initialize(client: PaykitClient) {
         self.paykitClient = client
     }

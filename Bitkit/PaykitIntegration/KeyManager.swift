@@ -85,6 +85,12 @@ public final class PaykitKeyManager {
         return currentEpoch
     }
     
+    /// Set current epoch to a specific value
+    /// Used for key rotation when switching to a pre-cached epoch
+    public func setCurrentEpoch(_ epoch: UInt32) {
+        try? keychain.store(key: Keys.epoch, data: String(epoch).data(using: .utf8)!)
+    }
+    
     /// Rotate keys by incrementing epoch
     public func rotateKeys() throws {
         let newEpoch = currentEpoch + 1
