@@ -267,9 +267,8 @@ public final class PushRelayService {
         let bodyHash = SHA256.hash(data: bodyData).compactMap { String(format: "%02x", $0) }.joined()
         let message = "\(method):\(path):\(timestamp):\(bodyHash)"
         
-        // Sign with Ed25519 (would use PaykitKeyManager's signing capability)
-        // For now, using a placeholder - actual implementation would use Ring's signing
-        let signature = try signMessage(message, pubkey: pubkey)
+        // Sign with Ed25519 via Pubky Ring
+        let signature = try await signMessage(message, pubkey: pubkey)
         
         request.setValue(signature, forHTTPHeaderField: "X-Pubky-Signature")
         request.setValue(String(timestamp), forHTTPHeaderField: "X-Pubky-Timestamp")

@@ -194,13 +194,14 @@ public final class PubkyRingBridge {
     /// - Gets everything in a single user interaction
     /// - Ensures noise keys are available even if Ring is later unavailable
     /// - Includes both epoch 0 and epoch 1 keypairs for key rotation
-    /// - Uses secure handoff (no secrets in URL)
+    /// - Always uses secure handoff (no secrets in URL)
     ///
-    /// - Parameter useSecureHandoff: If true (default), uses secure handoff where secrets are
-    ///   stored on homeserver rather than passed in URL. Set to false for legacy mode.
+    /// Ring stores secrets on homeserver at an unguessable path and returns only
+    /// a request_id. Bitkit fetches the payload and deletes it immediately.
+    ///
     /// - Returns: PaykitSetupResult containing session and noise keypairs
     /// - Throws: PubkyRingError if request fails or app not installed
-    public func requestPaykitSetup(useSecureHandoff: Bool = true) async throws -> PaykitSetupResult {
+    public func requestPaykitSetup() async throws -> PaykitSetupResult {
         guard isPubkyRingInstalled else {
             throw PubkyRingError.appNotInstalled
         }
@@ -209,16 +210,16 @@ public final class PubkyRingBridge {
         let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.paykitSetup)"
         let encodedCallback = callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl
         
-        var requestUrl = "\(pubkyRingScheme)://paykit-connect?deviceId=\(actualDeviceId)&callback=\(encodedCallback)"
+        let requestUrl = "\(pubkyRingScheme)://paykit-connect?deviceId=\(actualDeviceId)&callback=\(encodedCallback)"
         
-        // For secure handoff, we don't need an ephemeral key - Ring stores at an unguessable path
-        // and returns the request_id which Bitkit uses to fetch the payload
+        // Ring always uses secure handoff: secrets stored on homeserver at unguessable path,
+        // returns only request_id in callback. Bitkit fetches payload and deletes it immediately.
         
         guard let url = URL(string: requestUrl) else {
             throw PubkyRingError.invalidUrl
         }
         
-        Logger.info("Requesting Paykit setup from Pubky Ring (secure handoff: \(useSecureHandoff))", context: "PubkyRingBridge")
+        Logger.info("Requesting Paykit setup from Pubky Ring (secure handoff)", context: "PubkyRingBridge")
         
         let result = try await withCheckedThrowingContinuation { continuation in
             self.pendingPaykitSetupContinuation = continuation
