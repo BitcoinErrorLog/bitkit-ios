@@ -85,7 +85,7 @@ public final class DirectoryService {
     }
     
     /// Configure transport using a Pubky session from Pubky-ring
-    public func configureWithPubkySession(_ session: PubkySession) {
+    public func configureWithPubkySession(_ session: PubkyRingSession) {
         homeserverBaseURL = PubkyConfig.defaultHomeserver
         
         // Configure authenticated transport

@@ -48,7 +48,7 @@ class NoisePaymentViewModel: ObservableObject {
         checkSessionStatus()
     }
     
-    func handleSessionAuthenticated(_ session: PubkySession) {
+    func handleSessionAuthenticated(_ session: PubkyRingSession) {
         // Session is already cached by PubkyRingBridge
         checkSessionStatus()
     }

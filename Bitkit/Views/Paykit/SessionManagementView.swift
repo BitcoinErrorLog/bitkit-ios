@@ -13,7 +13,7 @@ struct SessionManagementView: View {
     @State private var showExportSheet = false
     @State private var showImportSheet = false
     @State private var showDeleteConfirmation = false
-    @State private var selectedSession: PubkySession?
+    @State private var selectedSession: PubkyRingSession?
     @State private var importText = ""
     
     var body: some View {
@@ -242,7 +242,7 @@ struct SessionManagementView: View {
 // MARK: - Session Row
 
 struct SessionRow: View {
-    let session: PubkySession
+    let session: PubkyRingSession
     let onRemove: () -> Void
     
     var body: some View {
@@ -432,7 +432,7 @@ struct ImportBackupSheet: View {
 // MARK: - ViewModel
 
 class SessionManagementViewModel: ObservableObject {
-    @Published var sessions: [PubkySession] = []
+    @Published var sessions: [PubkyRingSession] = []
     @Published var deviceId: String = ""
     @Published var currentEpoch: UInt64 = 0
     @Published var cachedKeyCount: Int = 0

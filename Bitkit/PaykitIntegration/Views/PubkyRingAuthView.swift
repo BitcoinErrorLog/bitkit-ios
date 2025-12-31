@@ -16,7 +16,7 @@ struct PubkyRingAuthView: View {
     @State private var manualSessionSecret = ""
     @State private var timeRemaining: TimeInterval = 0
     
-    let onSessionReceived: (PubkySession) -> Void
+    let onSessionReceived: (PubkyRingSession) -> Void
     
     private let bridge = PubkyRingBridge.shared
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()

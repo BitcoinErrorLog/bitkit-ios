@@ -118,7 +118,7 @@ public final class PaykitManager {
     
     /// Request a session from Pubky-ring app.
     /// This opens Pubky-ring to authenticate and returns a session with credentials.
-    public func requestPubkySession() async throws -> PubkySession {
+    public func requestPubkySession() async throws -> PubkyRingSession {
         if PubkyRingBridge.shared.isPubkyRingInstalled {
             Logger.info("Requesting session from Pubky-ring", context: "PaykitManager")
             return try await PubkyRingBridge.shared.requestSession()
@@ -127,7 +127,7 @@ public final class PaykitManager {
     }
     
     /// Get a cached session or request a new one from Pubky-ring.
-    public func getOrRequestSession(for pubkey: String? = nil) async throws -> PubkySession {
+    public func getOrRequestSession(for pubkey: String? = nil) async throws -> PubkyRingSession {
         // Check cache first
         if let pubkey = pubkey, let cached = PubkyRingBridge.shared.getCachedSession(for: pubkey) {
             return cached
@@ -143,7 +143,7 @@ public final class PaykitManager {
     }
     
     /// Set a session manually (from cross-device auth or manual import)
-    public func setSession(_ session: PubkySession) {
+    public func setSession(_ session: PubkyRingSession) {
         Logger.info("Session set for pubkey: \(session.pubkey)", context: "PaykitManager")
         // The session is already cached in PubkyRingBridge during import/callback
         // This method is provided for explicit session setting from UI

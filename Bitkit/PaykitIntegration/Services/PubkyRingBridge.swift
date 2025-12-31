@@ -71,7 +71,7 @@ public final class PubkyRingBridge {
     // MARK: - State
     
     /// Pending session request continuation
-    private var pendingSessionContinuation: CheckedContinuation<PubkySession, Error>?
+    private var pendingSessionContinuation: CheckedContinuation<PubkyRingSession, Error>?
     
     /// Pending keypair request continuation
     private var pendingKeypairContinuation: CheckedContinuation<NoiseKeypair, Error>?
@@ -80,7 +80,7 @@ public final class PubkyRingBridge {
     private var pendingCrossDeviceRequestId: String?
     
     /// Cached sessions by pubkey
-    private var sessionCache: [String: PubkySession] = [:]
+    private var sessionCache: [String: PubkyRingSession] = [:]
     
     /// Cached keypairs by derivation path
     private var keypairCache: [String: NoiseKeypair] = [:]
@@ -154,9 +154,9 @@ public final class PubkyRingBridge {
     /// 2. Sign in to homeserver
     /// 3. Return session data via callback URL
     ///
-    /// - Returns: PubkySession with pubkey, session secret, and capabilities
+    /// - Returns: PubkyRingSession with pubkey, session secret, and capabilities
     /// - Throws: PubkyRingError if request fails or app not installed
-    public func requestSession() async throws -> PubkySession {
+    public func requestSession() async throws -> PubkyRingSession {
         guard isPubkyRingInstalled else {
             throw PubkyRingError.appNotInstalled
         }
@@ -247,7 +247,7 @@ public final class PubkyRingBridge {
     }
     
     /// Get cached session for a pubkey
-    public func getCachedSession(for pubkey: String) -> PubkySession? {
+    public func getCachedSession(for pubkey: String) -> PubkyRingSession? {
         sessionCache[pubkey]
     }
     
@@ -370,9 +370,9 @@ public final class PubkyRingBridge {
     /// - Parameters:
     ///   - requestId: The request ID from generateCrossDeviceRequest()
     ///   - timeout: Maximum time to wait (default 5 minutes)
-    /// - Returns: PubkySession if successful
+    /// - Returns: PubkyRingSession if successful
     /// - Throws: PubkyRingError on timeout or failure
-    public func pollForCrossDeviceSession(requestId: String, timeout: TimeInterval = 300) async throws -> PubkySession {
+    public func pollForCrossDeviceSession(requestId: String, timeout: TimeInterval = 300) async throws -> PubkyRingSession {
         let startTime = Date()
         let pollInterval: TimeInterval = 2.0 // Poll every 2 seconds
         
@@ -404,9 +404,9 @@ public final class PubkyRingBridge {
     ///   - pubkey: The z-base32 encoded public key
     ///   - sessionSecret: The session secret from Pubky-ring
     ///   - capabilities: Optional list of capabilities
-    /// - Returns: Imported PubkySession
-    public func importSession(pubkey: String, sessionSecret: String, capabilities: [String] = []) -> PubkySession {
-        let session = PubkySession(
+    /// - Returns: Imported PubkyRingSession
+    public func importSession(pubkey: String, sessionSecret: String, capabilities: [String] = []) -> PubkyRingSession {
+        let session = PubkyRingSession(
             pubkey: pubkey,
             sessionSecret: sessionSecret,
             capabilities: capabilities,
@@ -424,7 +424,7 @@ public final class PubkyRingBridge {
     
     // MARK: - Private Cross-Device Helpers
     
-    private func pollRelayForSession(requestId: String) async throws -> PubkySession? {
+    private func pollRelayForSession(requestId: String) async throws -> PubkyRingSession? {
         let urlString = "\(PubkyRingBridge.sessionRelayUrl)/\(requestId)"
         guard let url = URL(string: urlString) else { return nil }
         
@@ -441,7 +441,7 @@ public final class PubkyRingBridge {
             if httpResponse.statusCode == 200 {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
-                let session = try decoder.decode(PubkySession.self, from: data)
+                let session = try decoder.decode(PubkyRingSession.self, from: data)
                 return session
             }
             
@@ -552,7 +552,7 @@ public final class PubkyRingBridge {
         
         let capabilities = params["capabilities"]?.components(separatedBy: ",") ?? []
         
-        let session = PubkySession(
+        let session = PubkyRingSession(
             pubkey: pubkey,
             sessionSecret: sessionSecret,
             capabilities: capabilities,
@@ -720,7 +720,7 @@ public final class PubkyRingBridge {
         
         let capabilities = params["capabilities"]?.components(separatedBy: ",") ?? []
         
-        let session = PubkySession(
+        let session = PubkyRingSession(
             pubkey: pubkey,
             sessionSecret: sessionSecret,
             capabilities: capabilities,
@@ -740,7 +740,7 @@ public final class PubkyRingBridge {
     // MARK: - Session Persistence
     
     /// Persist a session to keychain
-    private func persistSession(_ session: PubkySession) {
+    private func persistSession(_ session: PubkyRingSession) {
         do {
             let data = try JSONEncoder().encode(session)
             keychainStorage.set(key: "pubky.session.\(session.pubkey)", value: data)
@@ -757,7 +757,7 @@ public final class PubkyRingBridge {
         for key in sessionKeys {
             do {
                 guard let data = keychainStorage.get(key: key) else { continue }
-                let session = try JSONDecoder().decode(PubkySession.self, from: data)
+                let session = try JSONDecoder().decode(PubkyRingSession.self, from: data)
                 sessionCache[session.pubkey] = session
                 Logger.info("Restored session for \(session.pubkey.prefix(12))...", context: "PubkyRingBridge")
             } catch {
@@ -769,12 +769,12 @@ public final class PubkyRingBridge {
     }
     
     /// Get all cached sessions
-    public var cachedSessions: [PubkySession] {
+    public var cachedSessions: [PubkyRingSession] {
         Array(sessionCache.values)
     }
     
     /// Get all cached sessions
-    public func getAllSessions() -> [PubkySession] {
+    public func getAllSessions() -> [PubkyRingSession] {
         Array(sessionCache.values)
     }
     
@@ -800,7 +800,7 @@ public final class PubkyRingBridge {
     }
     
     /// Set a session directly (for manual or imported sessions)
-    public func setCachedSession(_ session: PubkySession) {
+    public func setCachedSession(_ session: PubkyRingSession) {
         sessionCache[session.pubkey] = session
         persistSession(session)
     }
@@ -810,12 +810,12 @@ public final class PubkyRingBridge {
     /// Backup data structure for export
     public struct BackupData: Codable {
         public let deviceId: String
-        public let sessions: [PubkySession]
+        public let sessions: [PubkyRingSession]
         public let noiseKeys: [BackupNoiseKey]
         public let exportedAt: Date
         public let version: Int
         
-        public init(deviceId: String, sessions: [PubkySession], noiseKeys: [BackupNoiseKey], exportedAt: Date = Date(), version: Int = 1) {
+        public init(deviceId: String, sessions: [PubkyRingSession], noiseKeys: [BackupNoiseKey], exportedAt: Date = Date(), version: Int = 1) {
             self.deviceId = deviceId
             self.sessions = sessions
             self.noiseKeys = noiseKeys
@@ -920,7 +920,7 @@ public final class PubkyRingBridge {
 // MARK: - Data Models
 
 /// Session data returned from Pubky-ring
-public struct PubkySession: Codable {
+public struct PubkyRingSession: Codable {
     public let pubkey: String
     public let sessionSecret: String
     public let capabilities: [String]
