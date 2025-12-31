@@ -74,6 +74,12 @@ public final class PaykitManager {
         PubkySDKService.shared.restoreSessions()
         PubkySDKService.shared.configure()
         
+        // Configure DirectoryService with first available session for authenticated writes
+        if let session = PubkyRingBridge.shared.cachedSessions.first {
+            DirectoryService.shared.configureWithPubkySession(session)
+            Logger.info("DirectoryService configured with restored session", context: "PaykitManager")
+        }
+        
         isInitialized = true
         Logger.info("PaykitManager initialized successfully", context: "PaykitManager")
     }
@@ -121,7 +127,10 @@ public final class PaykitManager {
     public func requestPubkySession() async throws -> PubkyRingSession {
         if PubkyRingBridge.shared.isPubkyRingInstalled {
             Logger.info("Requesting session from Pubky-ring", context: "PaykitManager")
-            return try await PubkyRingBridge.shared.requestSession()
+            let session = try await PubkyRingBridge.shared.requestSession()
+            // Configure DirectoryService for authenticated writes to homeserver
+            DirectoryService.shared.configureWithPubkySession(session)
+            return session
         }
         throw PaykitError.pubkyRingNotInstalled
     }
@@ -146,7 +155,8 @@ public final class PaykitManager {
     public func setSession(_ session: PubkyRingSession) {
         Logger.info("Session set for pubkey: \(session.pubkey)", context: "PaykitManager")
         // The session is already cached in PubkyRingBridge during import/callback
-        // This method is provided for explicit session setting from UI
+        // Configure DirectoryService for authenticated writes to homeserver
+        DirectoryService.shared.configureWithPubkySession(session)
     }
     
     /// Check if a session is currently active

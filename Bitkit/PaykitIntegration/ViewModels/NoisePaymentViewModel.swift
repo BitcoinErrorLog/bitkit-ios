@@ -50,6 +50,8 @@ class NoisePaymentViewModel: ObservableObject {
     
     func handleSessionAuthenticated(_ session: PubkyRingSession) {
         // Session is already cached by PubkyRingBridge
+        // Configure DirectoryService with the session for authenticated writes
+        DirectoryService.shared.configureWithPubkySession(session)
         checkSessionStatus()
     }
     
