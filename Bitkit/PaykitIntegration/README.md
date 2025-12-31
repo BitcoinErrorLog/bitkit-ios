@@ -201,6 +201,81 @@ Ensure `PaykitIntegrationHelper.setup()` is called during app startup.
 
 See inline documentation in source files for detailed API reference.
 
+## Thread Safety & Security
+
+### Thread-Safe Services
+
+All Paykit services use proper synchronization for thread safety:
+
+| Service | Mechanism | Purpose |
+|---------|-----------|---------|
+| `PubkyRingBridge` | `NSLock` | Protects session and keypair caches |
+| `SpendingLimitManager` | `DispatchQueue.sync` | Serializes FFI access |
+| `NoiseKeyCache` | Barrier sync | Atomic read-check-write operations |
+| `PaykitReceiptStore` | Concurrent queue | Thread-safe receipt storage |
+
+### Secure Storage
+
+Sensitive data is stored in Keychain (encrypted at rest):
+
+- **Receipts**: `PaykitReceiptStore` uses `PaykitKeychainStorage`
+- **Sessions**: `PubkyRingBridge` persists to Keychain
+- **Keys**: `NoiseKeyCache` uses Keychain for X25519 keys
+
+### Deep Link Validation
+
+Use `PaykitDeepLinkValidator` for secure deep link handling:
+
+```swift
+switch PaykitDeepLinkValidator.validate(url) {
+case .valid(let requestId, let fromPubkey):
+    // Process validated parameters
+    handlePaymentRequest(requestId: requestId, from: fromPubkey)
+case .invalid(let reason):
+    // Show error to user
+    showError(reason)
+}
+```
+
+Validation includes:
+- Scheme validation (`paykit://` or `bitkit://payment-request`)
+- Required parameter checks (`requestId`, `from`)
+- Length limits (prevents buffer overflow attacks)
+- Character validation (alphanumeric only)
+
+### Biometric Policy for Background Payments
+
+Background payments (subscriptions, auto-pay) cannot use biometric authentication
+because there is no UI to present the prompt.
+
+**Policy:**
+- Use `AutoPayEvaluatorService.evaluateForBackground()` for background contexts
+- Returns `.needsApproval` instead of `.needsBiometric`
+- Sends local notification prompting user to open app
+
+**Configuration:**
+- Set `AutoPaySettings.biometricForLarge` to control threshold (default: 100,000 sats)
+- For fully automatic background payments, ensure amounts are below threshold
+- Or disable `biometricForLarge` for subscription payments
+
+### Shared Network Configuration
+
+Use `PaykitNetworkConfig.shared.session` for consistent network settings:
+
+```swift
+// Pre-configured with appropriate timeouts and security settings
+let session = PaykitNetworkConfig.shared.session
+
+// Or with custom timeout
+let customSession = PaykitNetworkConfig.shared.sessionWithTimeout(120)
+```
+
+Configuration:
+- 30 second request timeout
+- 60 second resource timeout
+- HTTP/2 enabled
+- URL caching disabled (sensitive payment data)
+
 ## Phase 6: Production Hardening
 
 ### Logging & Monitoring

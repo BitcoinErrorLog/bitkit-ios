@@ -18,10 +18,8 @@ public final class PubkyStorageAdapter {
     private let session: URLSession
     
     private init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: config)
+        // Use shared network configuration for consistent timeouts and settings
+        self.session = PaykitNetworkConfig.shared.session
     }
     
     /// Store data in Pubky storage (requires authenticated adapter)
@@ -156,10 +154,8 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     
     public init(homeserverURL: HomeserverURL? = nil) {
         self.homeserverURL = homeserverURL
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: config)
+        // Use shared network configuration for consistent timeouts and settings
+        self.session = PaykitNetworkConfig.shared.session
     }
     
     public func get(ownerPubkey: String, path: String) -> StorageGetResult {
@@ -276,11 +272,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     public init(sessionId: String, homeserverURL: HomeserverURL? = nil) {
         self.sessionId = sessionId
         self.homeserverURL = homeserverURL
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
-        config.httpCookieStorage = HTTPCookieStorage.shared
-        self.session = URLSession(configuration: config)
+        // Use shared network configuration for consistent timeouts and settings
+        self.session = PaykitNetworkConfig.shared.session
     }
     
     public func put(path: String, content: String) -> StorageOperationResult {
