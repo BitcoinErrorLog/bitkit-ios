@@ -91,15 +91,18 @@ public final class PaykitManager {
         
         Logger.info("Registering Paykit executors", context: "PaykitManager")
         
-        bitcoinExecutor = BitkitBitcoinExecutor()
-        lightningExecutor = BitkitLightningExecutor()
+        let btcExecutor = BitkitBitcoinExecutor()
+        let lnExecutor = BitkitLightningExecutor()
         
         guard let client = client else {
             throw PaykitManagerError.notInitialized
         }
-        try client.registerBitcoinExecutor(executor: bitcoinExecutor!)
-        try client.registerLightningExecutor(executor: lightningExecutor!)
+        try client.registerBitcoinExecutor(executor: btcExecutor)
+        try client.registerLightningExecutor(executor: lnExecutor)
         
+        // Store references after successful registration
+        bitcoinExecutor = btcExecutor
+        lightningExecutor = lnExecutor
         hasExecutors = true
         Logger.info("Paykit executors registered successfully", context: "PaykitManager")
     }

@@ -23,40 +23,41 @@ public final class NoiseKeyCache {
     }
     
     /// Get a cached key if available
+    ///
+    /// Thread-safe: Uses barrier sync for atomic read-check-write operation
     public func getKey(deviceId: String, epoch: UInt32) -> Data? {
         let key = cacheKey(deviceId: deviceId, epoch: epoch)
         
-        // Check memory cache first
-        var result: Data?
-        cacheQueue.sync {
-            result = memoryCache[key]
-        }
-        
-        if let cached = result {
-            return cached
-        }
-        
-        // Check persistent cache
-        if let keyData = try? keychain.retrieve(key: key) {
-            cacheQueue.async(flags: .barrier) {
-                self.memoryCache[key] = keyData
+        // Use barrier sync for atomic read-check-write to prevent race conditions
+        // where multiple threads could simultaneously load from keychain
+        return cacheQueue.sync(flags: .barrier) { () -> Data? in
+            // Check memory cache first
+            if let cached = memoryCache[key] {
+                return cached
             }
-            return keyData
+            
+            // Check persistent cache (within the same barrier to ensure atomicity)
+            if let keyData = try? keychain.retrieve(key: key) {
+                memoryCache[key] = keyData
+                return keyData
+            }
+            
+            return nil
         }
-        
-        return nil
     }
     
     /// Store a key in the cache
+    ///
+    /// Thread-safe: Uses barrier sync for atomic write
     public func setKey(_ keyData: Data, deviceId: String, epoch: UInt32) {
         let key = cacheKey(deviceId: deviceId, epoch: epoch)
         
-        // Store in memory cache
-        cacheQueue.async(flags: .barrier) {
+        // Store in memory cache with barrier sync to ensure write completes before returning
+        cacheQueue.sync(flags: .barrier) {
             self.memoryCache[key] = keyData
         }
         
-        // Store in keychain
+        // Store in keychain (outside barrier, as keychain has its own thread safety)
         try? keychain.store(key: key, data: keyData)
         
         // Cleanup old epochs if needed
@@ -64,8 +65,10 @@ public final class NoiseKeyCache {
     }
     
     /// Clear all cached keys
+    ///
+    /// Thread-safe: Uses barrier sync for atomic write
     public func clearAll() {
-        cacheQueue.async(flags: .barrier) {
+        cacheQueue.sync(flags: .barrier) {
             self.memoryCache.removeAll()
         }
     }

@@ -46,49 +46,57 @@ public class SpendingLimitManager {
         limitSats: Int64,
         period: String = "daily"
     ) throws -> PeerSpendingLimitFfi {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            let ffiLimit = try manager.setPeerSpendingLimit(
+                peerPubkey: peerPubkey,
+                limitSats: limitSats,
+                period: period
+            )
+            Logger.info("Set spending limit for \(peerPubkey): \(limitSats) sats (\(period))", context: "SpendingLimitManager")
+            
+            return ffiLimit
         }
-        
-        let ffiLimit = try manager.setPeerSpendingLimit(
-            peerPubkey: peerPubkey,
-            limitSats: limitSats,
-            period: period
-        )
-        Logger.info("Set spending limit for \(peerPubkey): \(limitSats) sats (\(period))", context: "SpendingLimitManager")
-        
-        return ffiLimit
     }
     
     /// Get the spending limit for a peer
     /// - Parameter peerPubkey: The peer's public key
     /// - Returns: The spending limit if set
     public func getSpendingLimit(peerPubkey: String) throws -> PeerSpendingLimitFfi? {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            return try manager.getPeerSpendingLimit(peerPubkey: peerPubkey)
         }
-        
-        return try manager.getPeerSpendingLimit(peerPubkey: peerPubkey)
     }
     
     /// List all spending limits
     /// - Returns: List of all configured spending limits
     public func listSpendingLimits() throws -> [PeerSpendingLimitFfi] {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            return try manager.listSpendingLimits()
         }
-        
-        return try manager.listSpendingLimits()
     }
     
     /// Remove the spending limit for a peer
     public func removeSpendingLimit(peerPubkey: String) throws {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            try manager.removePeerSpendingLimit(peerPubkey: peerPubkey)
+            Logger.info("Removed spending limit for \(peerPubkey)", context: "SpendingLimitManager")
         }
-        
-        try manager.removePeerSpendingLimit(peerPubkey: peerPubkey)
-        Logger.info("Removed spending limit for \(peerPubkey)", context: "SpendingLimitManager")
     }
     
     // MARK: - Atomic Spending Operations
@@ -100,25 +108,29 @@ public class SpendingLimitManager {
     /// - Returns: A reservation if successful
     /// - Throws: If the amount would exceed the limit
     public func tryReserveSpending(peerPubkey: String, amountSats: Int64) throws -> SpendingReservationFfi {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            let reservation = try manager.tryReserveSpending(peerPubkey: peerPubkey, amountSats: amountSats)
+            Logger.debug("Reserved \(amountSats) sats for \(peerPubkey), id: \(reservation.reservationId)", context: "SpendingLimitManager")
+            
+            return reservation
         }
-        
-        let reservation = try manager.tryReserveSpending(peerPubkey: peerPubkey, amountSats: amountSats)
-        Logger.debug("Reserved \(amountSats) sats for \(peerPubkey), id: \(reservation.reservationId)", context: "SpendingLimitManager")
-        
-        return reservation
     }
     
     /// Commit a spending reservation (marks the spending as final)
     /// This operation is idempotent.
     public func commitSpending(reservationId: String) throws {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            try manager.commitSpending(reservationId: reservationId)
+            Logger.info("Committed spending for reservation: \(reservationId)", context: "SpendingLimitManager")
         }
-        
-        try manager.commitSpending(reservationId: reservationId)
-        Logger.info("Committed spending for reservation: \(reservationId)", context: "SpendingLimitManager")
     }
     
     /// Commit a spending reservation (marks the spending as final)
@@ -129,12 +141,14 @@ public class SpendingLimitManager {
     /// Rollback a spending reservation (releases the reserved amount)
     /// This operation is idempotent.
     public func rollbackSpending(reservationId: String) throws {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            try manager.rollbackSpending(reservationId: reservationId)
+            Logger.debug("Rolled back spending for reservation: \(reservationId)", context: "SpendingLimitManager")
         }
-        
-        try manager.rollbackSpending(reservationId: reservationId)
-        Logger.debug("Rolled back spending for reservation: \(reservationId)", context: "SpendingLimitManager")
     }
     
     /// Rollback a spending reservation (releases the reserved amount)
@@ -145,19 +159,23 @@ public class SpendingLimitManager {
     /// Check if spending an amount would exceed the limit (non-blocking check)
     /// - Returns: Result containing whether the limit would be exceeded and remaining details
     public func wouldExceedLimit(peerPubkey: String, amountSats: Int64) throws -> SpendingCheckResultFfi {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            
+            return try manager.wouldExceedSpendingLimit(peerPubkey: peerPubkey, amountSats: amountSats)
         }
-        
-        return try manager.wouldExceedSpendingLimit(peerPubkey: peerPubkey, amountSats: amountSats)
     }
     
     /// Get the number of active (in-flight) reservations
     public func activeReservationsCount() throws -> UInt32 {
-        guard let manager = ffiManager else {
-            throw SpendingLimitError.notInitialized
+        try queue.sync {
+            guard let manager = ffiManager else {
+                throw SpendingLimitError.notInitialized
+            }
+            return try manager.activeReservationsCount()
         }
-        return try manager.activeReservationsCount()
     }
     
     // MARK: - Convenience

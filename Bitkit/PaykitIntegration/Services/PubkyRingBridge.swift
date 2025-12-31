@@ -85,14 +85,68 @@ public final class PubkyRingBridge {
     /// Pending cross-device request ID
     private var pendingCrossDeviceRequestId: String?
     
-    /// Cached sessions by pubkey
+    /// Lock for thread-safe cache access
+    private let cacheLock = NSLock()
+    
+    /// Cached sessions by pubkey - access via thread-safe methods
     private var sessionCache: [String: PubkySession] = [:]
     
-    /// Cached keypairs by derivation path
+    /// Cached keypairs by derivation path - access via thread-safe methods
     private var keypairCache: [String: NoiseKeypair] = [:]
     
     /// Keychain storage for persistent session storage
     private let keychainStorage = PaykitKeychainStorage()
+    
+    // MARK: - Thread-Safe Cache Helpers
+    
+    private func withCacheLock<T>(_ operation: () -> T) -> T {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return operation()
+    }
+    
+    private func getSession(_ pubkey: String) -> PubkySession? {
+        withCacheLock { sessionCache[pubkey] }
+    }
+    
+    private func setSession(_ session: PubkySession) {
+        withCacheLock { sessionCache[session.pubkey] = session }
+    }
+    
+    private func getKeypair(_ cacheKey: String) -> NoiseKeypair? {
+        withCacheLock { keypairCache[cacheKey] }
+    }
+    
+    private func setKeypair(_ keypair: NoiseKeypair, cacheKey: String) {
+        withCacheLock { keypairCache[cacheKey] = keypair }
+    }
+    
+    private func clearAllCaches() {
+        withCacheLock {
+            sessionCache.removeAll()
+            keypairCache.removeAll()
+        }
+    }
+    
+    private func removeSession(_ pubkey: String) {
+        withCacheLock { sessionCache.removeValue(forKey: pubkey) }
+    }
+    
+    private func getAllSessions() -> [PubkySession] {
+        withCacheLock { Array(sessionCache.values) }
+    }
+    
+    private func getSessionCount() -> Int {
+        withCacheLock { sessionCache.count }
+    }
+    
+    private func getKeypairCount() -> Int {
+        withCacheLock { keypairCache.count }
+    }
+    
+    private func getAllSessionKeys() -> [String] {
+        withCacheLock { Array(sessionCache.keys) }
+    }
     
     /// Device ID for noise key derivation
     private var _deviceId: String?
@@ -235,14 +289,14 @@ public final class PubkyRingBridge {
         }
         
         // Cache session
-        sessionCache[result.session.pubkey] = result.session
+        setSession(result.session)
         
         // Cache and persist noise keypairs
         let noiseKeyCache = NoiseKeyCache.shared
         
         if let keypair0 = result.noiseKeypair0 {
             let cacheKey = "\(keypair0.deviceId):\(keypair0.epoch)"
-            keypairCache[cacheKey] = keypair0
+            setKeypair(keypair0, cacheKey: cacheKey)
             if let secretKeyData = keypair0.secretKey.data(using: .utf8) {
                 noiseKeyCache.setKey(secretKeyData, deviceId: keypair0.deviceId, epoch: UInt32(keypair0.epoch))
             }
@@ -251,7 +305,7 @@ public final class PubkyRingBridge {
         
         if let keypair1 = result.noiseKeypair1 {
             let cacheKey = "\(keypair1.deviceId):\(keypair1.epoch)"
-            keypairCache[cacheKey] = keypair1
+            setKeypair(keypair1, cacheKey: cacheKey)
             if let secretKeyData = keypair1.secretKey.data(using: .utf8) {
                 noiseKeyCache.setKey(secretKeyData, deviceId: keypair1.deviceId, epoch: UInt32(keypair1.epoch))
             }
@@ -277,7 +331,7 @@ public final class PubkyRingBridge {
         let cacheKey = "\(actualDeviceId):\(epoch)"
         
         // Check memory cache first
-        if let cached = keypairCache[cacheKey] {
+        if let cached = getKeypair(cacheKey) {
             Logger.debug("Noise keypair cache hit for \(cacheKey)", context: "PubkyRingBridge")
             return cached
         }
@@ -317,7 +371,7 @@ public final class PubkyRingBridge {
         }
         
         // Cache the keypair
-        keypairCache[cacheKey] = keypair
+        setKeypair(keypair, cacheKey: cacheKey)
         
         // Persist secret key to NoiseKeyCache
         if let secretKeyData = keypair.secretKey.data(using: .utf8) {
@@ -329,13 +383,12 @@ public final class PubkyRingBridge {
     
     /// Get cached session for a pubkey
     public func getCachedSession(for pubkey: String) -> PubkySession? {
-        sessionCache[pubkey]
+        getSession(pubkey)
     }
     
     /// Clear all cached data
     public func clearCache() {
-        sessionCache.removeAll()
-        keypairCache.removeAll()
+        clearAllCaches()
     }
     
     // MARK: - Ed25519 Signing
@@ -500,13 +553,13 @@ public final class PubkyRingBridge {
         
         while Date().timeIntervalSince(startTime) < timeout {
             // Check if session arrived via direct callback
-            if let session = sessionCache.values.first(where: { _ in pendingCrossDeviceRequestId == nil }) {
+            if pendingCrossDeviceRequestId == nil, let session = getAllSessions().first {
                 return session
             }
             
             // Poll relay for session
             if let session = try? await pollRelayForSession(requestId: requestId) {
-                sessionCache[session.pubkey] = session
+                setSession(session)
                 pendingCrossDeviceRequestId = nil
                 return session
             }
@@ -534,7 +587,7 @@ public final class PubkyRingBridge {
             capabilities: capabilities,
             createdAt: Date()
         )
-        sessionCache[pubkey] = session
+        setSession(session)
         return session
     }
     
@@ -686,7 +739,7 @@ public final class PubkyRingBridge {
         )
         
         // Cache the session
-        sessionCache[pubkey] = session
+        setSession(session)
         
         // Persist to keychain
         persistSession(session)
@@ -731,7 +784,7 @@ public final class PubkyRingBridge {
         
         // Cache the keypair in memory
         let cacheKey = "\(deviceId):\(epoch)"
-        keypairCache[cacheKey] = keypair
+        setKeypair(keypair, cacheKey: cacheKey)
         
         // Persist secret key to NoiseKeyCache
         if let secretKeyData = secretKey.data(using: .utf8) {
@@ -838,20 +891,20 @@ public final class PubkyRingBridge {
         
         // Always cache the session directly for robustness
         // This ensures session is available even if called outside of requestPaykitSetup flow
-        sessionCache[session.pubkey] = session
+        setSession(session)
         persistSession(session)
         
         // Cache noise keypairs if present
         if let kp0 = keypair0 {
             let cacheKey0 = "\(kp0.deviceId):\(kp0.epoch)"
-            keypairCache[cacheKey0] = kp0
+            setKeypair(kp0, cacheKey: cacheKey0)
             if let secretKeyData = kp0.secretKey.data(using: .utf8) {
                 NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp0.deviceId, epoch: UInt32(kp0.epoch))
             }
         }
         if let kp1 = keypair1 {
             let cacheKey1 = "\(kp1.deviceId):\(kp1.epoch)"
-            keypairCache[cacheKey1] = kp1
+            setKeypair(kp1, cacheKey: cacheKey1)
             if let secretKeyData = kp1.secretKey.data(using: .utf8) {
                 NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp1.deviceId, epoch: UInt32(kp1.epoch))
             }
@@ -920,19 +973,19 @@ public final class PubkyRingBridge {
         Logger.info("Secure handoff payload received for \(payload.pubky.prefix(12))...", context: "PubkyRingBridge")
         
         // Cache session and keypairs
-        sessionCache[session.pubkey] = session
+        setSession(session)
         persistSession(session)
         
         if let kp0 = keypair0 {
             let cacheKey0 = "\(kp0.deviceId):\(kp0.epoch)"
-            keypairCache[cacheKey0] = kp0
+            setKeypair(kp0, cacheKey: cacheKey0)
             if let secretKeyData = kp0.secretKey.data(using: .utf8) {
                 NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp0.deviceId, epoch: UInt32(kp0.epoch))
             }
         }
         if let kp1 = keypair1 {
             let cacheKey1 = "\(kp1.deviceId):\(kp1.epoch)"
-            keypairCache[cacheKey1] = kp1
+            setKeypair(kp1, cacheKey: cacheKey1)
             if let secretKeyData = kp1.secretKey.data(using: .utf8) {
                 NoiseKeyCache.shared.setKey(secretKeyData, deviceId: kp1.deviceId, epoch: UInt32(kp1.epoch))
             }
@@ -1102,7 +1155,7 @@ public final class PubkyRingBridge {
         )
         
         // Cache the session
-        sessionCache[pubkey] = session
+        setSession(session)
         pendingCrossDeviceRequestId = nil
         
         // Persist to keychain for cross-device sessions too
@@ -1132,50 +1185,51 @@ public final class PubkyRingBridge {
             do {
                 guard let data = keychainStorage.get(key: key) else { continue }
                 let session = try JSONDecoder().decode(PubkySession.self, from: data)
-                sessionCache[session.pubkey] = session
+                setSession(session)
                 Logger.info("Restored session for \(session.pubkey.prefix(12))...", context: "PubkyRingBridge")
             } catch {
                 Logger.error("Failed to restore session from \(key): \(error)", context: "PubkyRingBridge")
             }
         }
         
-        Logger.info("Restored \(sessionCache.count) sessions from keychain", context: "PubkyRingBridge")
+        Logger.info("Restored \(getSessionCount()) sessions from keychain", context: "PubkyRingBridge")
     }
     
     /// Get all cached sessions
     public var cachedSessions: [PubkySession] {
-        Array(sessionCache.values)
+        getAllSessions()
     }
     
     /// Get all cached sessions
-    public func getAllSessions() -> [PubkySession] {
-        Array(sessionCache.values)
+    public func getAllSessionsList() -> [PubkySession] {
+        getAllSessions()
     }
     
     /// Get count of cached keypairs
     public func getCachedKeypairCount() -> Int {
-        keypairCache.count
+        getKeypairCount()
     }
     
     /// Clear a specific session from cache and keychain
     public func clearSession(pubkey: String) {
-        sessionCache.removeValue(forKey: pubkey)
+        removeSession(pubkey)
         keychainStorage.deleteQuietly(key: "pubky.session.\(pubkey)")
         Logger.info("Cleared session for \(pubkey.prefix(12))...", context: "PubkyRingBridge")
     }
     
     /// Clear all sessions from cache and keychain
     public func clearAllSessions() {
-        for pubkey in sessionCache.keys {
+        let pubkeys = getAllSessionKeys()
+        for pubkey in pubkeys {
             keychainStorage.deleteQuietly(key: "pubky.session.\(pubkey)")
         }
-        sessionCache.removeAll()
+        clearAllCaches()
         Logger.info("Cleared all sessions", context: "PubkyRingBridge")
     }
     
     /// Set a session directly (for manual or imported sessions)
     public func setCachedSession(_ session: PubkySession) {
-        sessionCache[session.pubkey] = session
+        setSession(session)
         persistSession(session)
     }
     
@@ -1215,11 +1269,12 @@ public final class PubkyRingBridge {
     ///
     /// - Returns: BackupData containing device ID, sessions, and noise keys
     public func exportBackup() -> BackupData {
-        let sessions = Array(sessionCache.values)
+        let sessions = getAllSessions()
         var noiseKeys: [BackupNoiseKey] = []
         
-        // Export noise keys from keypair cache
-        for (cacheKey, keypair) in keypairCache {
+        // Export noise keys from keypair cache (thread-safe copy)
+        let keypairs = withCacheLock { Array(keypairCache.values) }
+        for keypair in keypairs {
             noiseKeys.append(BackupNoiseKey(
                 deviceId: keypair.deviceId,
                 epoch: keypair.epoch,
@@ -1263,7 +1318,7 @@ public final class PubkyRingBridge {
         
         // Restore sessions
         for session in backup.sessions {
-            sessionCache[session.pubkey] = session
+            setSession(session)
             persistSession(session)
         }
         

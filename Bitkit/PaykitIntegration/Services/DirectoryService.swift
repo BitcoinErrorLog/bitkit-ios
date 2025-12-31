@@ -80,8 +80,13 @@ public final class DirectoryService {
     /// Configure Pubky transport for directory operations
     /// - Parameter homeserverURL: The homeserver URL (defaults to resolved default homeserver)
     public func configurePubkyTransport(homeserverURL: HomeserverURL? = nil) {
-        self.homeserverURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
-        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: self.homeserverURL!)
+        let resolvedURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
+        guard let resolvedURL else {
+            Logger.error("Failed to resolve homeserver URL for directory transport", context: "DirectoryService")
+            return
+        }
+        self.homeserverURL = resolvedURL
+        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: resolvedURL)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
     }
     
@@ -91,24 +96,33 @@ public final class DirectoryService {
     ///   - ownerPubkey: The owner's public key
     ///   - homeserverURL: The homeserver URL (defaults to resolved default homeserver)
     public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: OwnerPubkey, homeserverURL: HomeserverURL? = nil) {
-        self.homeserverURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
+        let resolvedURL = homeserverURL ?? HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
+        guard let resolvedURL else {
+            Logger.error("Failed to resolve homeserver URL for authenticated transport", context: "DirectoryService")
+            return
+        }
+        self.homeserverURL = resolvedURL
         self.ownerPubkey = ownerPubkey
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverURL: self.homeserverURL!)
+        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverURL: resolvedURL)
         self.authenticatedAdapter = adapter
         authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: ownerPubkey.value)
     }
     
     /// Configure transport using a Pubky session from Pubky-ring
     public func configureWithPubkySession(_ session: PubkySession) {
-        homeserverURL = HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey)
+        guard let resolvedURL = HomeserverResolver.shared.resolve(pubkey: PubkyConfig.defaultHomeserverPubkey) else {
+            Logger.error("Failed to resolve homeserver URL for Pubky session", context: "DirectoryService")
+            return
+        }
+        homeserverURL = resolvedURL
         
         // Configure authenticated transport
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverURL: homeserverURL!)
+        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverURL: resolvedURL)
         self.ownerPubkey = OwnerPubkey(session.pubkey)
         authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: session.pubkey)
         
         // Also configure unauthenticated transport
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: homeserverURL!)
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverURL: resolvedURL)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
         
         Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey)", context: "DirectoryService")
