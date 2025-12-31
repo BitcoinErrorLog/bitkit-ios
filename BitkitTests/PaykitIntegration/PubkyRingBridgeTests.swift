@@ -245,7 +245,7 @@ final class PubkyRingBridgeTests: XCTestCase {
     // MARK: - Session Capability Tests
     
     func testPubkySessionHasCapabilityMethod() {
-        let session = PubkySession(
+        let session = PubkyRingSession(
             pubkey: "testpubkey",
             sessionSecret: "testsecret",
             capabilities: ["paykit:read", "paykit:write"],

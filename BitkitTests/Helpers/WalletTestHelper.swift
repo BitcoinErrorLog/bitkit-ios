@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@testable import Bitkit
 
 /// Helper class for wallet-related test operations
 public class WalletTestHelper {
