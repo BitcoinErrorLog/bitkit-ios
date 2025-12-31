@@ -424,8 +424,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func list(prefix: String) -> StorageListResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(prefix)?shallow=true"
+        let urlString = if let url = homeserverURL {
+            "\(url.value)\(prefix)?shallow=true"
         } else {
             "https://homeserver.pubky.app\(prefix)?shallow=true"
         }
