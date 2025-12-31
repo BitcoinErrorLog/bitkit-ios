@@ -24,12 +24,19 @@ public class SubscriptionBackgroundService {
     /// Hours before due to send notification (default 24 hours)
     private let notifyBeforeHours: Int = 24
     
+    /// Retry configuration for failed payments
+    private let maxRetries: Int = 3
+    private let initialRetryDelay: TimeInterval = 5.0  // 5 seconds
+    private let maxRetryDelay: TimeInterval = 60.0     // 1 minute max
+    
     private let subscriptionStorage: SubscriptionStorage
     private let autoPayStorage: AutoPayStorage
+    private let autoPayEvaluator: AutoPayEvaluatorService
     
     private init(identityName: String = "default") {
         self.subscriptionStorage = SubscriptionStorage(identityName: identityName)
         self.autoPayStorage = AutoPayStorage(identityName: identityName)
+        self.autoPayEvaluator = AutoPayEvaluatorService(identityName: identityName)
     }
     
     // MARK: - Registration
@@ -155,47 +162,86 @@ public class SubscriptionBackgroundService {
             return
         }
         
-        // Evaluate auto-pay using storage directly (non-MainActor)
-        let autoPayStorage = AutoPayStorage.shared
-        let settings = autoPayStorage.getSettings()
+        // Evaluate auto-pay using dedicated evaluator service (non-MainActor safe)
+        let result = autoPayEvaluator.evaluateForBackground(
+            peerPubkey: subscription.providerPubkey,
+            peerName: subscription.providerName,
+            amount: Int64(subscription.amountSats),
+            methodId: "lightning",
+            isSubscription: true
+        )
         
-        // Check if auto-pay is enabled
-        guard settings.isEnabled else {
-            Logger.info("SubscriptionBackgroundService: Auto-pay disabled, needs manual approval", context: "SubscriptionBackgroundService")
-            await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "Auto-pay is disabled")
-            return
-        }
-        
-        // Check spending limit
-        do {
-            let checkResult = try SpendingLimitManager.shared.wouldExceedLimit(
+        switch result {
+        case .approved(let ruleId, let ruleName):
+            Logger.info("SubscriptionBackgroundService: Auto-pay approved by rule: \(ruleName ?? ruleId)", context: "SubscriptionBackgroundService")
+            try await executePaymentWithRetry(subscription)
+            
+            // Record successful auto-pay
+            autoPayEvaluator.recordPayment(
                 peerPubkey: subscription.providerPubkey,
-                amountSats: Int64(subscription.amountSats)
+                peerName: subscription.providerName,
+                amount: Int64(subscription.amountSats),
+                approved: true,
+                reason: "Auto-approved by rule: \(ruleName ?? ruleId)"
             )
             
-            if checkResult.wouldExceed {
-                Logger.info("SubscriptionBackgroundService: Auto-pay denied: Would exceed spending limit", context: "SubscriptionBackgroundService")
-                await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "Would exceed spending limit")
-                return
+        case .denied(let reason):
+            Logger.info("SubscriptionBackgroundService: Auto-pay denied: \(reason)", context: "SubscriptionBackgroundService")
+            await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: reason)
+            
+        case .needsApproval:
+            Logger.info("SubscriptionBackgroundService: Payment needs manual approval", context: "SubscriptionBackgroundService")
+            await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "Manual approval required")
+            
+        case .needsBiometric:
+            // This case shouldn't occur when using evaluateForBackground(), but handle it safely
+            Logger.info("SubscriptionBackgroundService: Biometric required, deferring to foreground", context: "SubscriptionBackgroundService")
+            await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "Biometric authentication required")
+        }
+    }
+    
+    /// Execute payment with exponential backoff retry logic.
+    ///
+    /// Retry strategy:
+    /// - Initial delay: 5 seconds
+    /// - Exponential backoff: delay doubles each retry (5s, 10s, 20s)
+    /// - Maximum delay capped at 60 seconds
+    /// - Maximum retries: 3
+    private func executePaymentWithRetry(_ subscription: BitkitSubscription) async throws {
+        var lastError: Error?
+        var currentDelay = initialRetryDelay
+        
+        for attempt in 1...maxRetries {
+            do {
+                try await executePayment(subscription)
+                return // Success
+            } catch {
+                lastError = error
+                
+                if attempt < maxRetries {
+                    Logger.warn(
+                        "SubscriptionBackgroundService: Payment attempt \(attempt)/\(maxRetries) failed: \(error.localizedDescription), retrying in \(currentDelay)s",
+                        context: "SubscriptionBackgroundService"
+                    )
+                    
+                    // Wait with exponential backoff
+                    try? await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                    
+                    // Double the delay for next retry, capped at max
+                    currentDelay = min(currentDelay * 2, maxRetryDelay)
+                } else {
+                    Logger.error(
+                        "SubscriptionBackgroundService: All \(maxRetries) payment attempts failed for subscription \(subscription.id)",
+                        context: "SubscriptionBackgroundService"
+                    )
+                }
             }
-        } catch {
-            // No spending limit configured - continue with approval
-            Logger.debug("SubscriptionBackgroundService: No spending limit configured for peer", context: "SubscriptionBackgroundService")
         }
         
-        // Check for matching rule
-        if let rule = autoPayStorage.getRule(for: subscription.providerPubkey) {
-            if let maxAmount = rule.maxAmountSats, subscription.amountSats > maxAmount {
-                Logger.info("SubscriptionBackgroundService: Auto-pay denied: Amount exceeds rule limit", context: "SubscriptionBackgroundService")
-                await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "Amount exceeds rule limit")
-                return
-            }
-            
-            Logger.info("SubscriptionBackgroundService: Auto-pay approved by rule: \(rule.name)", context: "SubscriptionBackgroundService")
-            try await executePayment(subscription)
-        } else {
-            Logger.info("SubscriptionBackgroundService: No matching rule, needs manual approval", context: "SubscriptionBackgroundService")
-            await sendPaymentNeedsApprovalNotification(subscription: subscription, reason: "No auto-pay rule for this peer")
+        // All retries exhausted
+        if let error = lastError {
+            await sendPaymentFailedNotification(subscription: subscription, reason: error.localizedDescription)
+            throw error
         }
     }
     
