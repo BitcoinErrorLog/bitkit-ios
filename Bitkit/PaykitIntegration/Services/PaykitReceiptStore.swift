@@ -1,34 +1,37 @@
 // PaykitReceiptStore.swift
 // Bitkit iOS - Paykit Integration
 //
-// Persistent receipt storage using UserDefaults.
+// Persistent receipt storage using Keychain for secure storage.
 
 import Foundation
 
 // MARK: - PaykitReceiptStore
 
-/// Persistent receipt store using UserDefaults.
+/// Persistent receipt store using Keychain for secure storage.
 ///
 /// Provides thread-safe storage and retrieval of payment receipts.
-/// Receipts are automatically persisted to disk and survive app restarts.
+/// Receipts are automatically persisted to Keychain and survive app restarts.
+///
+/// Security: Uses PaykitKeychainStorage to ensure receipts (which contain
+/// payment amounts and peer pubkeys) are encrypted at rest.
 public final class PaykitReceiptStore {
     
     // MARK: - Constants
     
-    private static let storageKey = "com.bitkit.paykit.receipts"
+    private static let storageKey = "paykit.receipts"
     private static let maxReceipts = 1000  // Prevent unbounded growth
     
     // MARK: - Properties
     
-    private let defaults: UserDefaults
+    private let keychain: PaykitKeychainStorage
     private var cache: [String: PaykitReceipt] = [:]
     private let queue = DispatchQueue(label: "PaykitReceiptStore", attributes: .concurrent)
     private var isLoaded = false
     
     // MARK: - Initialization
     
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    public init(keychain: PaykitKeychainStorage = .shared) {
+        self.keychain = keychain
         loadFromDisk()
     }
     
@@ -93,7 +96,7 @@ public final class PaykitReceiptStore {
     public func clear() {
         queue.async(flags: .barrier) {
             self.cache.removeAll()
-            self.defaults.removeObject(forKey: Self.storageKey)
+            self.keychain.deleteQuietly(key: Self.storageKey)
         }
     }
     
@@ -108,13 +111,13 @@ public final class PaykitReceiptStore {
         queue.async(flags: .barrier) {
             guard !self.isLoaded else { return }
             
-            if let data = self.defaults.data(forKey: Self.storageKey) {
+            if let data = self.keychain.get(key: Self.storageKey) {
                 do {
                     let decoder = JSONDecoder()
                     decoder.dateDecodingStrategy = .iso8601
                     let receipts = try decoder.decode([PaykitReceipt].self, from: data)
                     self.cache = Dictionary(uniqueKeysWithValues: receipts.map { ($0.id, $0) })
-                    Logger.debug("Loaded \(receipts.count) receipts from disk", context: "PaykitReceiptStore")
+                    Logger.debug("Loaded \(receipts.count) receipts from keychain", context: "PaykitReceiptStore")
                 } catch {
                     Logger.error("Failed to load receipts: \(error)", context: "PaykitReceiptStore")
                 }
@@ -137,8 +140,8 @@ public final class PaykitReceiptStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(Array(cache.values))
-            defaults.set(data, forKey: Self.storageKey)
-            Logger.debug("Saved \(cache.count) receipts to disk", context: "PaykitReceiptStore")
+            keychain.set(key: Self.storageKey, value: data)
+            Logger.debug("Saved \(cache.count) receipts to keychain", context: "PaykitReceiptStore")
         } catch {
             Logger.error("Failed to save receipts: \(error)", context: "PaykitReceiptStore")
         }

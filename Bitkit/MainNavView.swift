@@ -232,9 +232,21 @@ struct MainNavView: View {
                     return
                 }
 
-                // Check if this is a Paykit payment request
-                if url.scheme == "paykit" || (url.scheme == "bitkit" && url.host == "payment-request") {
-                    await handlePaymentRequestDeepLink(url: url, app: app, sheets: sheets)
+                // Check if this is a Paykit payment request using secure validator
+                if PaykitDeepLinkValidator.isPaykitURL(url) {
+                    // Validate before processing
+                    switch PaykitDeepLinkValidator.validate(url) {
+                    case .valid(let requestId, let fromPubkey):
+                        await handlePaymentRequestDeepLink(
+                            requestId: requestId,
+                            fromPubkey: fromPubkey,
+                            app: app,
+                            sheets: sheets
+                        )
+                    case .invalid(let reason):
+                        Logger.error("Invalid Paykit deep link: \(reason)", context: "MainNavView")
+                        app.toast(type: .error, title: "Invalid Request", description: reason)
+                    }
                     return
                 }
                 
@@ -566,24 +578,21 @@ struct MainNavView: View {
     }
     #endif
     
-    /// Handle payment request deep links
-    /// Format: paykit://payment-request?requestId=xxx&from=yyy
-    /// or: bitkit://payment-request?requestId=xxx&from=yyy
-    private func handlePaymentRequestDeepLink(url: URL, app: AppViewModel, sheets: SheetViewModel) async {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = components.queryItems else {
-            app.toast(type: .error, title: "Invalid Request", description: "Could not parse payment request URL")
-            return
-        }
-        
-        let requestId = queryItems.first(where: { $0.name == "requestId" })?.value
-        let fromPubkey = queryItems.first(where: { $0.name == "from" })?.value
-        
-        guard let requestId = requestId, let fromPubkey = fromPubkey else {
-            app.toast(type: .error, title: "Invalid Request", description: "Payment request URL is missing required parameters")
-            return
-        }
-        
+    /// Handle payment request deep links with pre-validated parameters.
+    ///
+    /// Parameters are already validated by `PaykitDeepLinkValidator` before this method is called.
+    ///
+    /// - Parameters:
+    ///   - requestId: The validated payment request ID.
+    ///   - fromPubkey: The validated sender's public key.
+    ///   - app: The app view model.
+    ///   - sheets: The sheet view model.
+    private func handlePaymentRequestDeepLink(
+        requestId: String,
+        fromPubkey: String,
+        app: AppViewModel,
+        sheets: SheetViewModel
+    ) async {
         Logger.info("Processing payment request: \(requestId) from \(fromPubkey.prefix(16))...", context: "MainNavView")
         
         // Check if PaykitManager is initialized, try to initialize if not
