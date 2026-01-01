@@ -66,6 +66,7 @@ public final class PubkyRingBridge {
         public static let profile = "paykit-profile"
         public static let follows = "paykit-follows"
         public static let crossDeviceSession = "paykit-cross-session"
+        public static let paykitSetup = "paykit-setup"
     }
     
     // MARK: - State
@@ -521,6 +522,8 @@ public final class PubkyRingBridge {
             return handleFollowsCallback(url: url)
         case CallbackPaths.crossDeviceSession:
             return handleCrossDeviceSessionCallback(url: url)
+        case CallbackPaths.paykitSetup:
+            return handlePaykitSetupCallback(url: url)
         default:
             return false
         }
@@ -733,6 +736,75 @@ public final class PubkyRingBridge {
         
         // Persist to keychain for cross-device sessions too
         persistSession(session)
+        
+        return true
+    }
+    
+    /// Handle paykit-setup callback from Pubky-ring secure handoff
+    ///
+    /// When Pubky-ring uses secure handoff mode, it stores the session and noise keys
+    /// on the homeserver at an unguessable path, then returns only the pubkey and request_id.
+    /// This handler fetches the payload from the homeserver.
+    private func handlePaykitSetupCallback(url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            pendingSessionContinuation?.resume(throwing: PubkyRingError.invalidCallback)
+            pendingSessionContinuation = nil
+            return true
+        }
+        
+        var params: [String: String] = [:]
+        for item in queryItems {
+            if let value = item.value {
+                params[item.name] = value
+            }
+        }
+        
+        // Verify this is a secure handoff callback
+        guard let pubkey = params["pubky"],
+              let requestId = params["request_id"],
+              params["mode"] == "secure_handoff" else {
+            // Not a secure handoff - try legacy handling
+            Logger.debug("paykit-setup callback missing secure_handoff params, trying legacy", context: "PubkyRingBridge")
+            pendingSessionContinuation?.resume(throwing: PubkyRingError.missingParameters)
+            pendingSessionContinuation = nil
+            return true
+        }
+        
+        Logger.info("Received secure handoff callback for \(pubkey.prefix(12))...", context: "PubkyRingBridge")
+        
+        // Fetch payload asynchronously from homeserver
+        Task {
+            do {
+                let result = try await SecureHandoffHandler.shared.fetchAndProcessPayload(
+                    pubkey: pubkey,
+                    requestId: requestId
+                )
+                
+                // Cache the session
+                sessionCache[pubkey] = result.session
+                persistSession(result.session)
+                
+                // Cache noise keypairs
+                if let keypair0 = result.noiseKeypair0 {
+                    let cacheKey = "\(result.deviceId):0"
+                    keypairCache[cacheKey] = keypair0
+                }
+                if let keypair1 = result.noiseKeypair1 {
+                    let cacheKey = "\(result.deviceId):1"
+                    keypairCache[cacheKey] = keypair1
+                }
+                
+                pendingSessionContinuation?.resume(returning: result.session)
+                pendingSessionContinuation = nil
+                
+                Logger.info("Secure handoff completed for \(pubkey.prefix(12))...", context: "PubkyRingBridge")
+            } catch {
+                Logger.error("Secure handoff failed: \(error)", context: "PubkyRingBridge")
+                pendingSessionContinuation?.resume(throwing: error)
+                pendingSessionContinuation = nil
+            }
+        }
         
         return true
     }

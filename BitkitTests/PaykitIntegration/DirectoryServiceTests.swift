@@ -292,4 +292,158 @@ final class DirectoryServiceTests: XCTestCase {
         XCTAssertNil(profile.avatar)
         XCTAssertNil(profile.links)
     }
+    
+    // MARK: - SecureHandoffHandler Tests
+    
+    func testSecureHandoffPayloadDecoding() throws {
+        let json = """
+        {
+            "version": 1,
+            "pubky": "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty",
+            "session_secret": "abc123def456",
+            "capabilities": ["read", "write"],
+            "device_id": "test-device-id",
+            "noise_keypairs": [
+                {"epoch": 0, "public_key": "pk0_hex", "secret_key": "sk0_hex"},
+                {"epoch": 1, "public_key": "pk1_hex", "secret_key": "sk1_hex"}
+            ],
+            "created_at": 1704067200000,
+            "expires_at": 1704067500000
+        }
+        """.data(using: .utf8)!
+        
+        let payload = try JSONDecoder().decode(SecureHandoffPayload.self, from: json)
+        
+        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.pubky, "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty")
+        XCTAssertEqual(payload.sessionSecret, "abc123def456")
+        XCTAssertEqual(payload.capabilities, ["read", "write"])
+        XCTAssertEqual(payload.deviceId, "test-device-id")
+        XCTAssertEqual(payload.noiseKeypairs.count, 2)
+        XCTAssertEqual(payload.noiseKeypairs[0].epoch, 0)
+        XCTAssertEqual(payload.noiseKeypairs[0].publicKey, "pk0_hex")
+        XCTAssertEqual(payload.noiseKeypairs[0].secretKey, "sk0_hex")
+        XCTAssertEqual(payload.noiseKeypairs[1].epoch, 1)
+        XCTAssertEqual(payload.createdAt, 1704067200000)
+        XCTAssertEqual(payload.expiresAt, 1704067500000)
+    }
+    
+    func testSecureHandoffPayloadDecodingWithMinimalKeypairs() throws {
+        let json = """
+        {
+            "version": 1,
+            "pubky": "testpubky123",
+            "session_secret": "secret",
+            "capabilities": [],
+            "device_id": "device",
+            "noise_keypairs": [
+                {"epoch": 0, "public_key": "pk", "secret_key": "sk"}
+            ],
+            "created_at": 0,
+            "expires_at": 9999999999999
+        }
+        """.data(using: .utf8)!
+        
+        let payload = try JSONDecoder().decode(SecureHandoffPayload.self, from: json)
+        
+        XCTAssertEqual(payload.noiseKeypairs.count, 1)
+        XCTAssertTrue(payload.capabilities.isEmpty)
+    }
+    
+    func testSecureHandoffPayloadExpirationValidation() throws {
+        // Create an expired payload
+        let expiredPayload = SecureHandoffPayload(
+            version: 1,
+            pubky: "testpubky",
+            sessionSecret: "secret",
+            capabilities: [],
+            deviceId: "device",
+            noiseKeypairs: [],
+            createdAt: 0,
+            expiresAt: 1000  // Long expired (1 second after epoch)
+        )
+        
+        XCTAssertThrowsError(try SecureHandoffHandler.shared.validatePayload(expiredPayload)) { error in
+            XCTAssertEqual(error as? SecureHandoffError, .payloadExpired)
+        }
+    }
+    
+    func testSecureHandoffPayloadValidNotExpired() throws {
+        // Create a payload that expires far in the future
+        let futureExpiry = Int64(Date().timeIntervalSince1970 * 1000) + 300000 // 5 minutes from now
+        
+        let validPayload = SecureHandoffPayload(
+            version: 1,
+            pubky: "testpubky",
+            sessionSecret: "secret",
+            capabilities: ["read", "write"],
+            deviceId: "device",
+            noiseKeypairs: [],
+            createdAt: Int64(Date().timeIntervalSince1970 * 1000),
+            expiresAt: futureExpiry
+        )
+        
+        // Should not throw
+        XCTAssertNoThrow(try SecureHandoffHandler.shared.validatePayload(validPayload))
+    }
+    
+    func testNoiseKeypairPayloadDecoding() throws {
+        let json = """
+        {
+            "epoch": 0,
+            "public_key": "aabbccdd",
+            "secret_key": "11223344"
+        }
+        """.data(using: .utf8)!
+        
+        let keypair = try JSONDecoder().decode(NoiseKeypairPayload.self, from: json)
+        
+        XCTAssertEqual(keypair.epoch, 0)
+        XCTAssertEqual(keypair.publicKey, "aabbccdd")
+        XCTAssertEqual(keypair.secretKey, "11223344")
+    }
+    
+    func testPaykitSetupResultInitialization() {
+        let session = PubkyRingSession(
+            pubkey: "testpubky123",
+            sessionSecret: "secret456",
+            capabilities: ["read"],
+            createdAt: Date()
+        )
+        
+        let keypair0 = NoiseKeypair(
+            publicKey: "pk0",
+            secretKey: "sk0",
+            deviceId: "device",
+            epoch: 0
+        )
+        
+        let result = PaykitSetupResult(
+            session: session,
+            deviceId: "device",
+            noiseKeypair0: keypair0,
+            noiseKeypair1: nil
+        )
+        
+        XCTAssertEqual(result.session.pubkey, "testpubky123")
+        XCTAssertEqual(result.deviceId, "device")
+        XCTAssertNotNil(result.noiseKeypair0)
+        XCTAssertNil(result.noiseKeypair1)
+    }
+    
+    func testSecureHandoffErrorDescriptions() {
+        XCTAssertEqual(SecureHandoffError.payloadNotFound.errorDescription, "Handoff payload not found on homeserver")
+        XCTAssertEqual(SecureHandoffError.payloadExpired.errorDescription, "Handoff payload has expired")
+        XCTAssertEqual(SecureHandoffError.invalidPayload.errorDescription, "Invalid handoff payload format")
+        XCTAssertEqual(SecureHandoffError.deletionFailed.errorDescription, "Failed to delete handoff payload")
+        XCTAssertEqual(SecureHandoffError.networkError("test").errorDescription, "Network error: test")
+    }
+    
+    func testSecureHandoffErrorEquality() {
+        XCTAssertEqual(SecureHandoffError.payloadNotFound, SecureHandoffError.payloadNotFound)
+        XCTAssertEqual(SecureHandoffError.payloadExpired, SecureHandoffError.payloadExpired)
+        XCTAssertEqual(SecureHandoffError.networkError("a"), SecureHandoffError.networkError("a"))
+        XCTAssertNotEqual(SecureHandoffError.networkError("a"), SecureHandoffError.networkError("b"))
+        XCTAssertNotEqual(SecureHandoffError.payloadNotFound, SecureHandoffError.payloadExpired)
+    }
 }

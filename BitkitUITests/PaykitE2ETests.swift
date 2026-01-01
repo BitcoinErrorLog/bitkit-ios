@@ -17,6 +17,9 @@ final class PaykitE2ETests: XCTestCase {
     
     var app: XCUIApplication!
     
+    /// Orchestrator for cross-app E2E testing
+    private var orchestrator: E2ETestOrchestrator!
+    
     /// Whether Pubky-ring app is installed on the test device
     /// Determined by checking if the app can be launched
     private var isPubkyRingInstalled: Bool {
@@ -58,9 +61,17 @@ final class PaykitE2ETests: XCTestCase {
         app.launchEnvironment = [
             "E2E_BUILD": "true",
             "ELECTRUM_URL": "localhost:50001",
-            "RGS_URL": "localhost:8080"
+            "RGS_URL": "localhost:8080",
+            "E2E_TEST_PUBKEY": E2ETestConfig.testPubkey,
+            "E2E_RUN_ID": E2ETestConfig.runId
         ]
         app.launch()
+        
+        // Initialize orchestrator
+        orchestrator = E2ETestOrchestrator(app: app)
+        
+        // Log configuration
+        print(E2ETestConfig.configurationDescription)
         
         // Wait for app to be ready
         let timeout: TimeInterval = 30
@@ -73,6 +84,12 @@ final class PaykitE2ETests: XCTestCase {
     }
     
     override func tearDownWithError() throws {
+        // Clean up test data if real E2E mode
+        if E2ETestConfig.isRealE2E {
+            orchestrator?.resetTestData()
+        }
+        
+        orchestrator = nil
         app = nil
     }
     
@@ -668,6 +685,239 @@ final class PaykitE2ETests: XCTestCase {
         if !isPubkyRingInstalled {
             print("⚠️ Test '\(feature)' is running in simulated mode. Install Pubky-ring for full cross-app testing.")
         }
+    }
+    
+    // MARK: - Real E2E Tests (Production Homeserver)
+    
+    /// Skip test unless real E2E mode is enabled
+    private func skipUnlessRealE2E(_ testName: String = #function) throws {
+        try XCTSkipUnless(E2ETestConfig.isRealE2E, "\(testName) requires E2E_TEST_PUBKEY environment variable")
+    }
+    
+    /// Skip test unless Pubky-ring is installed
+    private func skipUnlessPubkyRingInstalled(_ testName: String = #function) throws {
+        try XCTSkipUnless(orchestrator.isPubkyRingInstalled(), "\(testName) requires Pubky-ring app to be installed")
+    }
+    
+    // MARK: - Real Profile Tests
+    
+    /// Test: Fetch profile from production homeserver
+    /// Validates that DirectoryService.fetchProfile works with real homeserver
+    func testRealProfileFetch() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        
+        // Ensure session is established
+        try orchestrator.ensureSessionEstablished()
+        
+        // Navigate to profile
+        orchestrator.navigateToProfileEdit()
+        
+        // Wait for profile to load
+        let nameField = app.textFields["Display Name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: E2ETestConfig.defaultUITimeout), "Profile name field should appear")
+        
+        // Verify profile has loaded (not in loading state)
+        orchestrator.waitForLoadingToComplete()
+        
+        // Profile should have some content (may be empty for new test identity)
+        // This validates the fetch succeeded without error
+        XCTAssertTrue(nameField.isHittable, "Name field should be interactive after load")
+        
+        print("E2E: Profile fetch succeeded")
+    }
+    
+    /// Test: Publish profile to production homeserver
+    /// Validates that DirectoryService.publishProfile works with real homeserver
+    func testRealProfilePublish() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        
+        try orchestrator.ensureSessionEstablished()
+        orchestrator.navigateToProfileEdit()
+        
+        // Edit profile with unique test data
+        let nameField = app.textFields["Display Name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: E2ETestConfig.defaultUITimeout))
+        nameField.clearAndTypeText(E2ETestConfig.testProfileName)
+        
+        // Edit bio if available
+        let bioField = app.textViews.firstMatch
+        if bioField.exists {
+            bioField.tap()
+            // Clear existing text via select all + type
+            if let currentBio = bioField.value as? String, !currentBio.isEmpty {
+                bioField.press(forDuration: 1.0)
+                if app.menuItems["Select All"].exists {
+                    app.menuItems["Select All"].tap()
+                }
+            }
+            bioField.typeText(E2ETestConfig.testProfileBio)
+        }
+        
+        // Publish
+        let publishButton = app.buttons["Publish to Pubky"]
+        XCTAssertTrue(publishButton.waitForExistence(timeout: 5))
+        publishButton.tap()
+        
+        // Verify success
+        let successMessage = app.staticTexts["Profile published successfully"]
+        XCTAssertTrue(
+            successMessage.waitForExistence(timeout: E2ETestConfig.networkTimeout),
+            "Profile should publish successfully to homeserver"
+        )
+        
+        print("E2E: Profile publish succeeded for '\(E2ETestConfig.testProfileName)'")
+    }
+    
+    /// Test: Verify profile persists on homeserver
+    /// Publishes profile, navigates away, returns, and verifies data
+    func testRealProfilePersistence() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        
+        try orchestrator.ensureSessionEstablished()
+        
+        // First publish a profile
+        orchestrator.navigateToProfileEdit()
+        
+        let uniqueName = "Persist Test \(E2ETestConfig.runId)"
+        let nameField = app.textFields["Display Name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: E2ETestConfig.defaultUITimeout))
+        nameField.clearAndTypeText(uniqueName)
+        
+        let publishButton = app.buttons["Publish to Pubky"]
+        publishButton.tap()
+        XCTAssertTrue(
+            app.staticTexts["Profile published successfully"].waitForExistence(timeout: E2ETestConfig.networkTimeout),
+            "Initial publish should succeed"
+        )
+        
+        // Navigate away
+        orchestrator.goBack()
+        Thread.sleep(forTimeInterval: E2ETestConfig.uiSettleDelay)
+        
+        // Navigate back to profile
+        orchestrator.navigateToProfileEdit()
+        orchestrator.waitForLoadingToComplete()
+        
+        // Verify persisted data
+        let reloadedNameField = app.textFields["Display Name"]
+        XCTAssertTrue(reloadedNameField.waitForExistence(timeout: E2ETestConfig.defaultUITimeout))
+        
+        let reloadedValue = reloadedNameField.value as? String ?? ""
+        XCTAssertEqual(
+            reloadedValue, uniqueName,
+            "Profile name should persist on homeserver: expected '\(uniqueName)', got '\(reloadedValue)'"
+        )
+        
+        print("E2E: Profile persistence verified for '\(uniqueName)'")
+    }
+    
+    // MARK: - Real Follows Tests
+    
+    /// Test: Fetch follows list from production homeserver
+    /// Validates that PubkySDKService.fetchFollows works with real homeserver
+    func testRealFollowsFetch() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        
+        try orchestrator.ensureSessionEstablished()
+        orchestrator.navigateToContacts()
+        
+        // Trigger sync
+        let syncButton = app.buttons["Sync Contacts"]
+        if syncButton.waitForExistence(timeout: 5) {
+            syncButton.tap()
+        }
+        
+        // Wait for sync to complete
+        Thread.sleep(forTimeInterval: 3)
+        orchestrator.waitForLoadingToComplete()
+        
+        // Either contacts are shown or empty state - both are valid
+        let noContactsMessage = app.staticTexts["No contacts found"]
+        let contactsList = app.tables.firstMatch
+        
+        XCTAssertTrue(
+            noContactsMessage.exists || (contactsList.exists && contactsList.cells.count >= 0),
+            "Should show either contacts list or empty state after sync"
+        )
+        
+        print("E2E: Follows fetch succeeded")
+    }
+    
+    /// Test: Add a follow to production homeserver
+    /// Validates that DirectoryService.addFollow works with real homeserver
+    func testRealAddFollow() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        try XCTSkipIf(!E2ETestConfig.hasSecondaryPubkey, "Requires E2E_SECONDARY_PUBKEY environment variable")
+        
+        try orchestrator.ensureSessionEstablished()
+        orchestrator.navigateToContacts()
+        
+        // Add follow
+        let addButton = app.buttons["Add Contact"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+        addButton.tap()
+        
+        let pubkeyField = app.textFields["Public Key"]
+        XCTAssertTrue(pubkeyField.waitForExistence(timeout: 5))
+        pubkeyField.tap()
+        pubkeyField.typeText(E2ETestConfig.secondaryTestPubkey)
+        
+        let confirmButton = app.buttons["Add"]
+        confirmButton.tap()
+        
+        // Verify follow was added
+        Thread.sleep(forTimeInterval: E2ETestConfig.publishSettleDelay)
+        
+        let contactCell = app.cells.containing(
+            NSPredicate(format: "label CONTAINS %@", String(E2ETestConfig.secondaryTestPubkey.prefix(12)))
+        ).firstMatch
+        
+        XCTAssertTrue(
+            contactCell.waitForExistence(timeout: 10),
+            "Added contact should appear in list"
+        )
+        
+        print("E2E: Add follow succeeded for '\(E2ETestConfig.secondaryTestPubkey.prefix(12))...'")
+    }
+    
+    /// Test: Remove a follow from production homeserver
+    /// Validates that DirectoryService.removeFollow works with real homeserver
+    func testRealRemoveFollow() throws {
+        try skipUnlessRealE2E()
+        try skipUnlessPubkyRingInstalled()
+        try XCTSkipIf(!E2ETestConfig.hasSecondaryPubkey, "Requires E2E_SECONDARY_PUBKEY environment variable")
+        
+        // First add a follow (if not already present)
+        try testRealAddFollow()
+        
+        // Now remove it
+        let contactCell = app.cells.containing(
+            NSPredicate(format: "label CONTAINS %@", String(E2ETestConfig.secondaryTestPubkey.prefix(12)))
+        ).firstMatch
+        
+        XCTAssertTrue(contactCell.exists, "Contact should exist before removal")
+        
+        // Swipe to delete
+        contactCell.swipeLeft()
+        let deleteButton = app.buttons["Delete"]
+        if deleteButton.waitForExistence(timeout: 3) {
+            deleteButton.tap()
+        }
+        
+        // Verify removal
+        Thread.sleep(forTimeInterval: E2ETestConfig.publishSettleDelay)
+        
+        XCTAssertFalse(
+            contactCell.exists,
+            "Contact should be removed from list"
+        )
+        
+        print("E2E: Remove follow succeeded")
     }
 }
 
