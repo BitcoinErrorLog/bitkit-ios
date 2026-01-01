@@ -98,17 +98,20 @@ public final class NoiseServerService {
         }
         
         // Convert to BitkitPaymentRequest and store
-        var request = BitkitPaymentRequest(
+        // For incoming requests: fromPubkey = who sent the request (payee/requester),
+        // toPubkey = who should pay (payer = me)
+        let request = BitkitPaymentRequest(
             id: noiseRequest.receiptId,
-            fromPubkey: noiseRequest.payerPubkey,
-            toPubkey: noiseRequest.payeePubkey,
+            fromPubkey: noiseRequest.payeePubkey,  // The requester who wants payment
+            toPubkey: noiseRequest.payerPubkey,    // Me, who is expected to pay
             amountSats: Int64(noiseRequest.amount ?? "0") ?? 0,
             currency: noiseRequest.currency ?? "BTC",
             methodId: noiseRequest.methodId,
             description: noiseRequest.description ?? "",
+            createdAt: Date(timeIntervalSince1970: TimeInterval(noiseRequest.createdAt)),
+            expiresAt: nil,
             status: .pending,
-            direction: .incoming,
-            createdAt: Date(timeIntervalSince1970: TimeInterval(noiseRequest.createdAt))
+            direction: .incoming
         )
         
         do {

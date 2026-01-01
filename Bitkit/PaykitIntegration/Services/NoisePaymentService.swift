@@ -34,6 +34,7 @@ public struct NoisePaymentRequest: Codable {
         case createdAt = "created_at"
     }
     
+    /// Create a new outgoing request (generates receiptId and createdAt)
     public init(
         payerPubkey: String,
         payeePubkey: String,
@@ -52,6 +53,29 @@ public struct NoisePaymentRequest: Codable {
         self.description = description
         self.invoiceNumber = invoiceNumber
         self.createdAt = Int64(Date().timeIntervalSince1970)
+    }
+    
+    /// Reconstruct from received message (preserves original receiptId and createdAt)
+    public init(
+        receiptId: String,
+        payerPubkey: String,
+        payeePubkey: String,
+        methodId: String,
+        amount: String?,
+        currency: String?,
+        description: String?,
+        invoiceNumber: String?,
+        createdAt: Int64
+    ) {
+        self.receiptId = receiptId
+        self.payerPubkey = payerPubkey
+        self.payeePubkey = payeePubkey
+        self.methodId = methodId
+        self.amount = amount
+        self.currency = currency
+        self.description = description
+        self.invoiceNumber = invoiceNumber
+        self.createdAt = createdAt
     }
 }
 
@@ -688,14 +712,17 @@ public final class NoisePaymentService {
             throw NoisePaymentError.invalidResponse("Unexpected message type: \(message.type)")
         }
         
+        // Preserve the original receiptId and createdAt from the message
         return NoisePaymentRequest(
+            receiptId: message.receiptId ?? "rcpt_\(UUID().uuidString)",
             payerPubkey: message.payer ?? "",
             payeePubkey: message.payee ?? "",
             methodId: message.methodId ?? "",
             amount: message.amount,
             currency: message.currency,
             description: message.description,
-            invoiceNumber: message.invoiceNumber
+            invoiceNumber: message.invoiceNumber,
+            createdAt: message.createdAt ?? Int64(Date().timeIntervalSince1970)
         )
     }
     
@@ -734,16 +761,18 @@ public final class NoisePaymentService {
 
 private extension Data {
     init(hexString: String) {
-        self.init()
-        var hex = hexString
-        while !hex.isEmpty {
-            let index = hex.index(hex.startIndex, offsetBy: min(2, hex.count))
-            let byteString = String(hex[..<index])
-            hex = String(hex[index...])
-            if let byte = UInt8(byteString, radix: 16) {
-                append(byte)
+        let len = hexString.count / 2
+        var data = Data(capacity: len)
+        var i = hexString.startIndex
+        for _ in 0..<len {
+            let j = hexString.index(i, offsetBy: 2)
+            let bytes = hexString[i..<j]
+            if var num = UInt8(bytes, radix: 16) {
+                data.append(&num, count: 1)
             }
+            i = j
         }
+        self = data
     }
 }
 

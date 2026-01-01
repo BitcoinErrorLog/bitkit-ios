@@ -277,7 +277,17 @@ public final class SecureHandoffHandler {
             return
         }
         
+        // Store in NoiseKeyCache (used by PubkyRingIntegration)
         noiseKeyCache.setKey(secretKeyData, deviceId: deviceId, epoch: epoch)
+        
+        // Also store in PaykitKeyManager cache (used by NoisePaymentService)
+        let cachedKeypair = CachedNoiseKeypair(
+            secretKey: keypair.secretKey,
+            publicKey: keypair.publicKey,
+            epoch: epoch
+        )
+        PaykitKeyManager.shared.cacheNoiseKeypair(cachedKeypair)
+        
         Logger.debug("Persisted noise keypair for epoch \(epoch)", context: "SecureHandoffHandler")
     }
     

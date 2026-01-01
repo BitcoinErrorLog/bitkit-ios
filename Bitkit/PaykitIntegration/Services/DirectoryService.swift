@@ -444,6 +444,9 @@ public final class DirectoryService {
                 return nil
             }
             
+            let createdAtTimestamp = (json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)
+            let expiresAtTimestamp = json["expires_at"] as? Int64
+            
             return BitkitPaymentRequest(
                 id: requestId,
                 fromPubkey: json["from_pubkey"] as? String ?? senderPubkey,
@@ -452,9 +455,10 @@ public final class DirectoryService {
                 currency: json["currency"] as? String ?? "BTC",
                 methodId: json["method_id"] as? String ?? "lightning",
                 description: json["description"] as? String ?? "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(createdAtTimestamp)),
+                expiresAt: expiresAtTimestamp.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 status: .pending,
-                direction: .incoming,
-                createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)))
+                direction: .incoming
             )
         } catch {
             Logger.error("Failed to fetch payment request \(requestId): \(error)", context: "DirectoryService")

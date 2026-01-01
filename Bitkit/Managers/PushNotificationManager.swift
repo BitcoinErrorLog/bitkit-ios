@@ -90,6 +90,28 @@ final class PushNotificationManager: ObservableObject {
 
     func handleNotification(_ userInfo: [AnyHashable: Any]) {
         Logger.debug("📩 Notification received: \(userInfo)")
+        
+        // Check for Paykit noise connection wake
+        if let type = userInfo["type"] as? String, type == "noise_connect" {
+            Task {
+                await NoiseServerService.shared.handlePushNotification(userInfo)
+            }
+            return
+        }
+        
+        // Check for Paykit payment request notification tap
+        if let type = userInfo["type"] as? String, type == "paykit_noise_request" {
+            if let requestId = userInfo["requestId"] as? String {
+                Logger.info("📩 Payment request notification tapped: \(requestId)", context: "PushNotificationManager")
+                // Post notification for UI to handle
+                NotificationCenter.default.post(
+                    name: .paykitRequestPayment,
+                    object: nil,
+                    userInfo: ["requestId": requestId]
+                )
+            }
+            return
+        }
     }
 
     func sendTestNotification() async throws {

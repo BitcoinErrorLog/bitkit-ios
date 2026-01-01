@@ -29,6 +29,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register Paykit background tasks
         SubscriptionBackgroundService.shared.registerBackgroundTask()
         PaykitPollingService.shared.registerBackgroundTask()
+        SessionRefreshService.shared.registerBackgroundTask()
 
         return true
     }

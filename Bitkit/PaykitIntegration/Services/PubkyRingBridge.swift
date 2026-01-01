@@ -348,13 +348,17 @@ public final class PubkyRingBridge {
             throw PubkyRingError.appNotInstalled
         }
         
-        // Hex-encode message for URL safety
-        let messageData = message.data(using: .utf8) ?? Data()
-        let messageHex = messageData.map { String(format: "%02x", $0) }.joined()
+        // URL-encode message for URL safety (Ring expects UTF-8 message, not hex)
+        // Ring will URL-decode and sign the UTF-8 bytes
+        guard let encodedMessage = message.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw PubkyRingError.invalidUrl
+        }
         
         let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.signature)"
-        let encodedCallback = callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl
-        let requestUrl = "\(pubkyRingScheme)://sign-message?message=\(messageHex)&callback=\(encodedCallback)"
+        guard let encodedCallback = callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw PubkyRingError.invalidUrl
+        }
+        let requestUrl = "\(pubkyRingScheme)://sign-message?message=\(encodedMessage)&callback=\(encodedCallback)"
         
         guard let url = URL(string: requestUrl) else {
             throw PubkyRingError.invalidUrl
@@ -657,11 +661,19 @@ public final class PubkyRingBridge {
         let cacheKey = "\(deviceId):\(epoch)"
         keypairCache[cacheKey] = keypair
         
-        // Persist secret key to NoiseKeyCache
+        // Persist secret key to NoiseKeyCache (used by PubkyRingIntegration)
         if let secretKeyData = secretKey.data(using: .utf8) {
             NoiseKeyCache.shared.setKey(secretKeyData, deviceId: deviceId, epoch: UInt32(epoch))
             Logger.debug("Persisted noise keypair to NoiseKeyCache for \(cacheKey)", context: "PubkyRingBridge")
         }
+        
+        // Also persist to PaykitKeyManager cache (used by NoisePaymentService)
+        let cachedKeypair = CachedNoiseKeypair(
+            secretKey: secretKey,
+            publicKey: publicKey,
+            epoch: UInt32(epoch)
+        )
+        PaykitKeyManager.shared.cacheNoiseKeypair(cachedKeypair)
         
         pendingKeypairContinuation?.resume(returning: keypair)
         pendingKeypairContinuation = nil
