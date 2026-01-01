@@ -151,18 +151,34 @@ public class PaymentRequestService {
     
     // MARK: - Private Helpers
     
-    /// Fetch payment request details from storage
+    /// Fetch payment request details from local storage or remote Pubky storage.
+    ///
+    /// First checks local storage, then falls back to fetching from the sender's
+    /// Pubky storage for cross-device payment requests.
     private func fetchPaymentRequest(requestId: String, fromPubkey: String) async throws -> BitkitPaymentRequest {
-        guard let request = paymentRequestStorage.getRequest(id: requestId) else {
-            throw PaymentRequestError.notFound(requestId)
+        // Step 1: Try local storage first
+        if let request = paymentRequestStorage.getRequest(id: requestId) {
+            // Verify the request is from the expected pubkey
+            if request.fromPubkey != fromPubkey {
+                throw PaymentRequestError.pubkeyMismatch
+            }
+            return request
         }
         
-        // Verify the request is from the expected pubkey
-        if request.fromPubkey != fromPubkey {
-            throw PaymentRequestError.pubkeyMismatch
+        // Step 2: Try fetching from sender's Pubky storage (cross-device flow)
+        Logger.info("PaymentRequestService: Fetching request \(requestId) from sender's Pubky storage", context: "PaymentRequestService")
+        
+        if let remoteRequest = try await directoryService.fetchPaymentRequest(
+            requestId: requestId,
+            senderPubkey: fromPubkey
+        ) {
+            // Cache locally for future access
+            try paymentRequestStorage.addRequest(remoteRequest)
+            Logger.info("PaymentRequestService: Fetched and cached request \(requestId) from remote", context: "PaymentRequestService")
+            return remoteRequest
         }
         
-        return request
+        throw PaymentRequestError.notFound(requestId)
     }
     
     /// Resolve payment endpoint from request

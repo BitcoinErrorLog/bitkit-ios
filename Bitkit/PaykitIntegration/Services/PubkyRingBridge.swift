@@ -67,6 +67,7 @@ public final class PubkyRingBridge {
         public static let follows = "paykit-follows"
         public static let crossDeviceSession = "paykit-cross-session"
         public static let paykitSetup = "paykit-setup"
+        public static let signature = "paykit-signature"
     }
     
     // MARK: - State
@@ -76,6 +77,9 @@ public final class PubkyRingBridge {
     
     /// Pending keypair request continuation
     private var pendingKeypairContinuation: CheckedContinuation<NoiseKeypair, Error>?
+    
+    /// Pending signature request continuation
+    private var pendingSignatureContinuation: CheckedContinuation<String, Error>?
     
     /// Pending cross-device request ID
     private var pendingCrossDeviceRequestId: String?
@@ -329,6 +333,47 @@ public final class PubkyRingBridge {
         }
     }
     
+    /// Request an Ed25519 signature from Pubky-ring
+    ///
+    /// Opens Pubky-ring app which will:
+    /// 1. Prompt user to approve signing
+    /// 2. Sign message with Ed25519 secret key
+    /// 3. Return signature via callback URL
+    ///
+    /// - Parameter message: Message to sign (will be hex-encoded)
+    /// - Returns: Hex-encoded Ed25519 signature
+    /// - Throws: PubkyRingError if request fails or app not installed
+    public func requestSignature(message: String) async throws -> String {
+        guard isPubkyRingInstalled else {
+            throw PubkyRingError.appNotInstalled
+        }
+        
+        // Hex-encode message for URL safety
+        let messageData = message.data(using: .utf8) ?? Data()
+        let messageHex = messageData.map { String(format: "%02x", $0) }.joined()
+        
+        let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.signature)"
+        let encodedCallback = callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl
+        let requestUrl = "\(pubkyRingScheme)://sign-message?message=\(messageHex)&callback=\(encodedCallback)"
+        
+        guard let url = URL(string: requestUrl) else {
+            throw PubkyRingError.invalidUrl
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            self.pendingSignatureContinuation = continuation
+            
+            DispatchQueue.main.async {
+                UIApplication.shared.open(url) { success in
+                    if !success {
+                        self.pendingSignatureContinuation?.resume(throwing: PubkyRingError.failedToOpenApp)
+                        self.pendingSignatureContinuation = nil
+                    }
+                }
+            }
+        }
+    }
+    
     // MARK: - Cross-Device Authentication
     
     /// Generate a cross-device session request that can be shared as a link or QR
@@ -524,6 +569,8 @@ public final class PubkyRingBridge {
             return handleCrossDeviceSessionCallback(url: url)
         case CallbackPaths.paykitSetup:
             return handlePaykitSetupCallback(url: url)
+        case CallbackPaths.signature:
+            return handleSignatureCallback(url: url)
         default:
             return false
         }
@@ -693,6 +740,48 @@ public final class PubkyRingBridge {
         
         pendingFollowsContinuation?.resume(returning: follows)
         pendingFollowsContinuation = nil
+        
+        return true
+    }
+    
+    private func handleSignatureCallback(url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            pendingSignatureContinuation?.resume(throwing: PubkyRingError.invalidCallback)
+            pendingSignatureContinuation = nil
+            return true
+        }
+        
+        var params: [String: String] = [:]
+        for item in queryItems {
+            if let value = item.value {
+                params[item.name] = value
+            }
+        }
+        
+        // Check for error response
+        if let error = params["error"] {
+            Logger.warn("Signature request returned error: \(error)", context: "PubkyRingBridge")
+            pendingSignatureContinuation?.resume(throwing: PubkyRingError.crossDeviceFailed(error))
+            pendingSignatureContinuation = nil
+            return true
+        }
+        
+        guard let signature = params["signature"] else {
+            pendingSignatureContinuation?.resume(throwing: PubkyRingError.missingParameters)
+            pendingSignatureContinuation = nil
+            return true
+        }
+        
+        // Cache the pubkey if returned and not already cached
+        if let pubkey = params["pubkey"], PaykitKeyManager.shared.getCurrentPublicKeyZ32() == nil {
+            PaykitKeyManager.shared.setCurrentPublicKey(z32: pubkey)
+        }
+        
+        Logger.debug("Received signature from Pubky-ring", context: "PubkyRingBridge")
+        
+        pendingSignatureContinuation?.resume(returning: signature)
+        pendingSignatureContinuation = nil
         
         return true
     }

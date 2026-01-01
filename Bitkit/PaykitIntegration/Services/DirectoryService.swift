@@ -414,9 +414,72 @@ public final class DirectoryService {
         return discovered
     }
     
-    // MARK: - Pending Requests Discovery
+    // MARK: - Payment Request Operations
     
     private static let paykitPathPrefix = "/pub/paykit.app/v0/"
+    
+    /// Fetch a payment request from a sender's Pubky storage.
+    ///
+    /// Retrieves from: pubky://{senderPubkey}/pub/paykit.app/v0/requests/{recipientPubkey}/{requestId}
+    ///
+    /// - Parameters:
+    ///   - requestId: The payment request ID
+    ///   - senderPubkey: The pubkey of the request sender
+    ///   - recipientPubkey: The recipient's pubkey (our pubkey)
+    /// - Returns: The payment request if found, nil otherwise
+    public func fetchPaymentRequest(requestId: String, senderPubkey: String, recipientPubkey: String? = nil) async throws -> BitkitPaymentRequest? {
+        let recipient = recipientPubkey ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? ""
+        let path = "\(Self.paykitPathPrefix)requests/\(recipient)/\(requestId)"
+        let pubkyUri = "pubky://\(senderPubkey)\(path)"
+        
+        Logger.debug("Fetching payment request from: \(pubkyUri)", context: "DirectoryService")
+        
+        do {
+            guard let data = try await PubkySDKService.shared.getData(pubkyUri) else {
+                Logger.debug("Payment request \(requestId) not found at \(senderPubkey.prefix(12))...", context: "DirectoryService")
+                return nil
+            }
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            
+            return BitkitPaymentRequest(
+                id: requestId,
+                fromPubkey: json["from_pubkey"] as? String ?? senderPubkey,
+                toPubkey: json["to_pubkey"] as? String ?? recipient,
+                amountSats: (json["amount_sats"] as? Int64) ?? 0,
+                currency: json["currency"] as? String ?? "BTC",
+                methodId: json["method_id"] as? String ?? "lightning",
+                description: json["description"] as? String ?? "",
+                status: .pending,
+                direction: .incoming,
+                createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)))
+            )
+        } catch {
+            Logger.error("Failed to fetch payment request \(requestId): \(error)", context: "DirectoryService")
+            return nil
+        }
+    }
+    
+    /// Remove a payment request from directory after processing.
+    ///
+    /// - Parameters:
+    ///   - requestId: The payment request ID to remove
+    ///   - recipientPubkey: The recipient's pubkey (where the request is stored)
+    public func removePaymentRequest(requestId: String, recipientPubkey: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let path = "\(Self.paykitPathPrefix)requests/\(recipientPubkey)/\(requestId)"
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        try await pubkyStorage.deleteFile(path: path, adapter: adapter)
+        Logger.info("Removed payment request: \(requestId)", context: "DirectoryService")
+    }
+    
+    // MARK: - Pending Requests Discovery
     
     /// Discover pending payment requests from the Pubky directory
     public func discoverPendingRequests(for ownerPubkey: String) async throws -> [DiscoveredRequest] {

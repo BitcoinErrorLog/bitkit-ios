@@ -187,6 +187,80 @@ public final class PubkySDKService {
         Logger.debug("Cleared profile and follows caches", context: "PubkySDKService")
     }
     
+    // MARK: - Generic Data Access
+    
+    /// Fetch raw data from a Pubky URI.
+    ///
+    /// - Parameter uri: Full Pubky URI (e.g., "pubky://pubkey/path/to/file")
+    /// - Returns: Raw data if found, nil otherwise
+    public func getData(_ uri: String) async throws -> Data? {
+        // Parse URI: pubky://{pubkey}/{path}
+        guard uri.hasPrefix("pubky://") else {
+            throw PubkySDKError.invalidInput("Invalid Pubky URI: \(uri)")
+        }
+        
+        let withoutScheme = String(uri.dropFirst(8)) // Remove "pubky://"
+        guard let firstSlash = withoutScheme.firstIndex(of: "/") else {
+            throw PubkySDKError.invalidInput("Invalid Pubky URI format: \(uri)")
+        }
+        
+        let pubkey = String(withoutScheme[..<firstSlash])
+        let path = String(withoutScheme[firstSlash...])
+        
+        let pubkyStorage = PubkyStorageAdapter.shared
+        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserver)
+        
+        return try await pubkyStorage.readFile(path: path, adapter: adapter, ownerPubkey: pubkey)
+    }
+    
+    // MARK: - Session Refresh
+    
+    /// Refresh a single session by pubkey.
+    ///
+    /// Note: This requires the session to still be valid or have a refresh mechanism.
+    /// In practice, Pubky-ring handles session management, so this is mostly a placeholder.
+    public func refreshSession(pubkey: String) async throws {
+        guard let session = getSession(for: pubkey) else {
+            throw PubkySDKError.noSession
+        }
+        
+        // Check if session has expiration
+        if let expiresAt = session.expiresAt, expiresAt > Date() {
+            // Session still valid, nothing to do
+            Logger.debug("Session for \(pubkey.prefix(12))... still valid until \(expiresAt)", context: "PubkySDKService")
+            return
+        }
+        
+        // Session expired or expiring - we'd need to re-authenticate via Pubky-ring
+        // For now, just log this. In production, you'd trigger a re-auth flow.
+        Logger.warn("Session for \(pubkey.prefix(12))... needs refresh - user action required", context: "PubkySDKService")
+    }
+    
+    /// Refresh all sessions that are expiring soon.
+    ///
+    /// - Parameter bufferSeconds: Refresh sessions expiring within this many seconds (default 600 = 10 minutes)
+    public func refreshExpiringSessions(bufferSeconds: TimeInterval = 600) async throws {
+        let now = Date()
+        let threshold = now.addingTimeInterval(bufferSeconds)
+        
+        lock.lock()
+        let expiringSessions = legacySessionCache.values.filter { session in
+            guard let expiresAt = session.expiresAt else { return false }
+            return expiresAt < threshold
+        }
+        lock.unlock()
+        
+        for session in expiringSessions {
+            do {
+                try await refreshSession(pubkey: session.pubkey)
+            } catch {
+                Logger.error("Failed to refresh session for \(session.pubkey.prefix(12))...: \(error)", context: "PubkySDKService")
+            }
+        }
+        
+        Logger.info("Checked \(expiringSessions.count) expiring sessions", context: "PubkySDKService")
+    }
+    
     // MARK: - Private Helpers
     
     private func persistSession(_ session: LegacyPubkySession) {

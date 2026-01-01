@@ -122,11 +122,50 @@ public final class PaykitKeyManager {
         try keychain.store(key: Keys.epoch, data: String(newEpoch).data(using: .utf8)!)
     }
     
+    /// Set current epoch
+    public func setCurrentEpoch(_ epoch: UInt32) {
+        try? keychain.store(key: Keys.epoch, data: String(epoch).data(using: .utf8)!)
+    }
+    
+    /// Set current public key (z32 format) - used when receiving from Pubky-ring callback
+    public func setCurrentPublicKey(z32 pubkey: String) {
+        try? keychain.store(key: Keys.publicKeyZ32, data: pubkey.data(using: .utf8)!)
+    }
+    
     /// Delete identity
     public func deleteIdentity() throws {
         try? keychain.delete(key: Keys.secretKey)
         try? keychain.delete(key: Keys.publicKey)
         try? keychain.delete(key: Keys.publicKeyZ32)
+    }
+    
+    // MARK: - Noise Keypair Cache
+    
+    private enum NoiseKeypairKeys {
+        static func secretKey(epoch: UInt32) -> String { "paykit.noise.\(epoch).secret" }
+        static func publicKey(epoch: UInt32) -> String { "paykit.noise.\(epoch).public" }
+    }
+    
+    /// Get cached noise keypair for current or specified epoch
+    public func getCachedNoiseKeypair(epoch: UInt32? = nil) -> CachedNoiseKeypair? {
+        let epochValue = epoch ?? currentEpoch
+        
+        guard let secretData = try? keychain.retrieve(key: NoiseKeypairKeys.secretKey(epoch: epochValue)),
+              let publicData = try? keychain.retrieve(key: NoiseKeypairKeys.publicKey(epoch: epochValue)),
+              let secretKey = String(data: secretData, encoding: .utf8),
+              let publicKey = String(data: publicData, encoding: .utf8) else {
+            return nil
+        }
+        
+        return CachedNoiseKeypair(secretKey: secretKey, publicKey: publicKey, epoch: epochValue)
+    }
+    
+    /// Cache noise keypair for an epoch
+    public func cacheNoiseKeypair(_ keypair: CachedNoiseKeypair) {
+        try? keychain.store(key: NoiseKeypairKeys.secretKey(epoch: keypair.epoch), 
+                            data: keypair.secretKey.data(using: .utf8)!)
+        try? keychain.store(key: NoiseKeypairKeys.publicKey(epoch: keypair.epoch), 
+                            data: keypair.publicKey.data(using: .utf8)!)
     }
     
     // MARK: - Private
@@ -144,6 +183,19 @@ enum PaykitKeyError: LocalizedError {
         case .noIdentity:
             return "No identity configured. Please set up your identity first."
         }
+    }
+}
+
+/// Cached X25519 noise keypair
+public struct CachedNoiseKeypair {
+    public let secretKey: String // Hex-encoded
+    public let publicKey: String // Hex-encoded
+    public let epoch: UInt32
+    
+    public init(secretKey: String, publicKey: String, epoch: UInt32) {
+        self.secretKey = secretKey
+        self.publicKey = publicKey
+        self.epoch = epoch
     }
 }
 

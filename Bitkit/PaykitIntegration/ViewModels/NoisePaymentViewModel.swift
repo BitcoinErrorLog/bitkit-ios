@@ -108,9 +108,42 @@ class NoisePaymentViewModel: ObservableObject {
     func acceptIncomingRequest() async {
         guard let request = paymentRequest else { return }
         
-        // TODO: Implement payment acceptance via PaykitPaymentService
-        // For now, just clear the request
-        paymentRequest = nil
+        isConnecting = true
+        errorMessage = nil
+        
+        do {
+            // Construct paykit: URI for proper payment routing
+            let paykitUri = "paykit:\(request.payeePubkey)"
+            let amountSats = UInt64(request.amount ?? "0") ?? 0
+            
+            let paymentService = PaykitPaymentService.shared
+            let result = try await paymentService.pay(
+                to: paykitUri,
+                amountSats: amountSats,
+                peerPubkey: request.payeePubkey
+            )
+            
+            if result.success {
+                Logger.info("NoisePaymentViewModel: Payment accepted successfully, receipt: \(result.receipt.id)", context: "NoisePaymentViewModel")
+                paymentRequest = nil
+                paymentResponse = NoisePaymentResponse(
+                    success: true,
+                    receiptId: result.receipt.id,
+                    confirmedAt: Date(),
+                    errorCode: nil,
+                    errorMessage: nil
+                )
+            } else {
+                let errorMsg = result.error?.localizedDescription ?? "Payment failed"
+                Logger.error("NoisePaymentViewModel: Payment failed: \(errorMsg)", context: "NoisePaymentViewModel")
+                errorMessage = errorMsg
+            }
+        } catch {
+            Logger.error("NoisePaymentViewModel: Payment acceptance failed: \(error)", context: "NoisePaymentViewModel")
+            errorMessage = error.localizedDescription
+        }
+        
+        isConnecting = false
     }
     
     func declineIncomingRequest() async {
