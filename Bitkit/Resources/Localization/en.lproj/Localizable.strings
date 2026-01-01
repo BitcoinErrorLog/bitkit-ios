@@ -325,6 +325,14 @@
 "onboarding__error_create" = "Wallet Creation Failed";
 "onboarding__multiple_header" = "<accent>Caution:</accent>\nmultiple devices";
 "onboarding__multiple_text" = "Don\'t install your Bitkit recovery phrase into multiple phones simultaneously, as this can corrupt your data.";
+"paykit__payment_failed" = "Payment Failed";
+"paykit__payment_failed_body" = "Failed to send %lld sats: %@";
+"paykit__payment_request_body" = "Request for %lld sats from %@";
+"paykit__payment_request_received" = "Payment Request Received";
+"paykit__payment_sent_auto" = "Payment Sent (Auto-Pay)";
+"paykit__payment_sent_body" = "Sent %lld sats to %@";
+"paykit__subscription_proposal" = "Subscription Proposal";
+"paykit__subscription_proposal_body" = "From %@: %lld sats";
 "other__qr_scan" = "Scan QR Code";
 "other__qr_error_header" = "Unable To Read QR";
 "other__qr_error_text" = "Bitkit is not able to read this QR code.";

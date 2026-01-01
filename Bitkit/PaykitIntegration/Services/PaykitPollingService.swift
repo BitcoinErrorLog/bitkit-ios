@@ -158,6 +158,9 @@ public final class PaykitPollingService {
             do {
                 let newRequests = try await performPoll()
                 
+                // Persist discovered requests to storage for UI display
+                await persistDiscoveredRequests(newRequests)
+                
                 // Process new requests
                 for request in newRequests {
                     await handleNewRequest(request)
@@ -185,6 +188,9 @@ public final class PaykitPollingService {
         
         do {
             let newRequests = try await performPoll()
+            
+            // Persist discovered requests to storage for UI display
+            await persistDiscoveredRequests(newRequests)
             
             for request in newRequests {
                 await handleNewRequest(request)
@@ -263,6 +269,8 @@ public final class PaykitPollingService {
             do {
                 try await executePayment(for: request)
                 await sendPaymentSuccessNotification(for: request)
+                // Clean up processed request from directory
+                await cleanupProcessedRequest(request)
             } catch {
                 Logger.error("PaykitPollingService: Auto-pay failed for request \(request.requestId): \(error)", context: "PaykitPollingService")
                 await sendPaymentFailureNotification(for: request, error: error)
@@ -319,15 +327,61 @@ public final class PaykitPollingService {
         }
     }
     
+    // MARK: - Persistence
+    
+    private func persistDiscoveredRequests(_ requests: [DiscoveredRequest]) async {
+        guard let ownerPubkey = PaykitManager.shared.ownerPubkey else { return }
+        let storage = PaymentRequestStorage()
+        
+        for request in requests {
+            // Only persist payment requests, not subscription proposals
+            guard request.type == .paymentRequest else { continue }
+            
+            let paymentRequest = BitkitPaymentRequest(
+                id: request.requestId,
+                fromPubkey: request.fromPubkey,
+                toPubkey: ownerPubkey,
+                amountSats: request.amountSats,
+                currency: "BTC",
+                methodId: "lightning",
+                description: request.description ?? "",
+                createdAt: request.createdAt ?? Date(),
+                expiresAt: nil,
+                status: .pending,
+                direction: .incoming
+            )
+            
+            // Don't overwrite if already exists
+            if storage.getRequest(id: request.requestId) == nil {
+                try? storage.addRequest(paymentRequest)
+                Logger.debug("PaykitPollingService: Persisted discovered request \(request.requestId) to storage", context: "PaykitPollingService")
+            }
+        }
+    }
+    
+    private func cleanupProcessedRequest(_ request: DiscoveredRequest) async {
+        guard let ownerPubkey = PaykitManager.shared.ownerPubkey else { return }
+        
+        do {
+            try await directoryService.removePaymentRequest(requestId: request.requestId, recipientPubkey: ownerPubkey)
+            Logger.info("PaykitPollingService: Cleaned up processed request \(request.requestId) from directory", context: "PaykitPollingService")
+        } catch {
+            Logger.warn("PaykitPollingService: Failed to cleanup request \(request.requestId): \(error.localizedDescription)", context: "PaykitPollingService")
+        }
+    }
+    
     // MARK: - Payment Execution
     
     private func executePayment(for request: DiscoveredRequest) async throws {
         // Ensure node is ready
         try await waitForNodeReady()
         
+        // Construct paykit: URI for proper payment routing
+        let paykitUri = "paykit:\(request.fromPubkey)"
+        
         // Execute payment via PaykitPaymentService with spending limit enforcement
         _ = try await PaykitPaymentService.shared.pay(
-            to: request.fromPubkey,
+            to: paykitUri,
             amountSats: UInt64(request.amountSats),
             peerPubkey: request.fromPubkey // Use peer pubkey for spending limit
         )
@@ -353,8 +407,8 @@ public final class PaykitPollingService {
     
     private func sendManualApprovalNotification(for request: DiscoveredRequest) async {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("payment_request_received", comment: "")
-        content.body = String(format: NSLocalizedString("payment_request_from", comment: ""), 
+        content.title = NSLocalizedString("paykit__payment_request_received", comment: "")
+        content.body = String(format: NSLocalizedString("paykit__payment_request_body", comment: ""), 
                               formatPubkey(request.fromPubkey), 
                               formatSats(request.amountSats))
         content.sound = .default
@@ -379,8 +433,8 @@ public final class PaykitPollingService {
     
     private func sendPaymentSuccessNotification(for request: DiscoveredRequest) async {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("payment_sent_auto", comment: "")
-        content.body = String(format: NSLocalizedString("payment_sent_to", comment: ""), 
+        content.title = NSLocalizedString("paykit__payment_sent_auto", comment: "")
+        content.body = String(format: NSLocalizedString("paykit__payment_sent_body", comment: ""), 
                               formatSats(request.amountSats),
                               formatPubkey(request.fromPubkey))
         content.sound = .default
@@ -400,8 +454,8 @@ public final class PaykitPollingService {
     
     private func sendPaymentFailureNotification(for request: DiscoveredRequest, error: Error) async {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("payment_failed", comment: "")
-        content.body = String(format: NSLocalizedString("payment_failed_for", comment: ""), 
+        content.title = NSLocalizedString("paykit__payment_failed", comment: "")
+        content.body = String(format: NSLocalizedString("paykit__payment_failed_body", comment: ""), 
                               formatSats(request.amountSats),
                               error.localizedDescription)
         content.sound = .default
@@ -425,8 +479,8 @@ public final class PaykitPollingService {
     
     private func sendSubscriptionProposalNotification(for request: DiscoveredRequest) async {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("subscription_proposal", comment: "")
-        content.body = String(format: NSLocalizedString("subscription_proposal_from", comment: ""), 
+        content.title = NSLocalizedString("paykit__subscription_proposal", comment: "")
+        content.body = String(format: NSLocalizedString("paykit__subscription_proposal_body", comment: ""), 
                               formatPubkey(request.fromPubkey),
                               formatSats(request.amountSats))
         content.sound = .default

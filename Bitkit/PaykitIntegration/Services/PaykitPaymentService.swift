@@ -85,6 +85,45 @@ public final class PaykitPaymentService {
         return .unknown
     }
     
+    // MARK: - Smart Method Selection
+    
+    /// Select optimal payment method for a recipient based on strategy.
+    ///
+    /// - Parameters:
+    ///   - recipientPubkey: Recipient's pubkey
+    ///   - amountSats: Payment amount
+    ///   - strategy: Selection strategy (default: .balanced)
+    /// - Returns: Selected payment method or nil if none available
+    public func selectOptimalMethod(
+        for recipientPubkey: String,
+        amountSats: UInt64,
+        strategy: SelectionStrategy = .balanced
+    ) async -> PaymentMethod? {
+        guard let client = try? manager.getClient() else { return nil }
+        
+        let directoryService = DirectoryService.shared
+        let methods = try? await directoryService.discoverPaymentMethods(for: recipientPubkey)
+        guard let methods = methods, !methods.isEmpty else { return nil }
+        
+        do {
+            let preferences = SelectionPreferences(
+                strategy: strategy,
+                excludedMethods: [],
+                maxFeeSats: nil,
+                maxConfirmationTimeSecs: nil
+            )
+            let result = try client.selectMethod(
+                supportedMethods: methods,
+                amountSats: amountSats,
+                preferences: preferences
+            )
+            return result.selectedMethod
+        } catch {
+            Logger.warn("Method selection failed, using first available: \(error.localizedDescription)", context: "PaykitPaymentService")
+            return methods.first
+        }
+    }
+    
     // MARK: - Payment Execution
     
     /// Execute a payment to a recipient.

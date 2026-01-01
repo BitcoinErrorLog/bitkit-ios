@@ -156,5 +156,79 @@ public final class HomeserverResolver {
         let resolvedURL = resolve(pubkey: homeserver ?? HomeserverDefaults.defaultPubkey)
         return "\(resolvedURL.value)\(path)"
     }
+    
+    // MARK: - Async DNS Resolution
+    
+    /// Resolve a homeserver pubkey with DNS lookup fallback.
+    ///
+    /// This async version tries DNS TXT record lookup at _pubky.{pubkey}
+    /// before falling back to the default homeserver.
+    ///
+    /// - Parameter pubkey: The homeserver's pubkey
+    /// - Returns: The resolved URL
+    public func resolveWithDNS(pubkey: HomeserverPubkey) async -> HomeserverURL {
+        // 1. Check for override (testing/development)
+        if let override = overrideURL {
+            return override
+        }
+        
+        let now = Date()
+        
+        // 2. Check cache
+        lock.lock()
+        if let cached = cache[pubkey], cached.expiresAt > now {
+            lock.unlock()
+            return cached.url
+        }
+        
+        // 3. Check known mappings
+        if let urlString = knownHomeservers[pubkey.value] {
+            let url = HomeserverURL(urlString)
+            cache[pubkey] = (url: url, expiresAt: now.addingTimeInterval(cacheTTL))
+            lock.unlock()
+            return url
+        }
+        lock.unlock()
+        
+        // 4. Try DNS-based resolution
+        if let dnsResolved = await resolveViaDNS(pubkey: pubkey.value) {
+            lock.lock()
+            cache[pubkey] = (url: dnsResolved, expiresAt: now.addingTimeInterval(cacheTTL))
+            lock.unlock()
+            return dnsResolved
+        }
+        
+        // 5. Fall back to production URL
+        let defaultURL = HomeserverDefaults.productionURL
+        lock.lock()
+        cache[pubkey] = (url: defaultURL, expiresAt: now.addingTimeInterval(cacheTTL))
+        lock.unlock()
+        return defaultURL
+    }
+    
+    /// Resolve homeserver via DNS TXT record at _pubky.{pubkey}
+    ///
+    /// Uses CFHost for DNS queries. Returns nil if DNS lookup fails.
+    private func resolveViaDNS(pubkey: String) async -> HomeserverURL? {
+        let dnsName = "_pubky.\(pubkey)"
+        
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                // Use CFHost for DNS queries
+                guard let hostRef = CFHostCreateWithName(nil, dnsName as CFString).takeRetainedValue() as CFHost? else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                var resolved = DarwinBoolean(false)
+                CFHostStartInfoResolution(hostRef, .addresses, nil)
+                
+                // Try to get TXT records (requires custom implementation or fallback)
+                // For now, this is a placeholder that returns nil
+                // Full DNS TXT implementation requires lower-level APIs
+                continuation.resume(returning: nil)
+            }
+        }
+    }
 }
 

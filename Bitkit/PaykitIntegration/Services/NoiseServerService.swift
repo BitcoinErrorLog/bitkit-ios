@@ -127,9 +127,9 @@ public final class NoiseServerService {
     
     private func showPaymentRequestNotification(_ request: BitkitPaymentRequest) async {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("paykit_payment_request_received", comment: "Payment Request Received")
+        content.title = NSLocalizedString("paykit__payment_request_received", comment: "Payment Request Received")
         content.body = String(
-            format: NSLocalizedString("paykit_payment_request_body", comment: "Request for %lld sats from %@"),
+            format: NSLocalizedString("paykit__payment_request_body", comment: "Request for %lld sats from %@"),
             request.amountSats,
             formatPubkey(request.fromPubkey)
         )

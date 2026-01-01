@@ -155,9 +155,8 @@ public class SubscriptionBackgroundService {
             return
         }
         
-        // Evaluate auto-pay using storage directly (non-MainActor)
-        let autoPayStorage = AutoPayStorage.shared
-        let settings = autoPayStorage.getSettings()
+        // Evaluate auto-pay using instance storage (respects identityName)
+        let settings = self.autoPayStorage.getSettings()
         
         // Check if auto-pay is enabled
         guard settings.isEnabled else {

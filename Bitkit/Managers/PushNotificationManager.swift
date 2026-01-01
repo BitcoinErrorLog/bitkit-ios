@@ -100,17 +100,39 @@ final class PushNotificationManager: ObservableObject {
         }
         
         // Check for Paykit payment request notification tap
-        if let type = userInfo["type"] as? String, type == "paykit_noise_request" {
-            if let requestId = userInfo["requestId"] as? String {
-                Logger.info("📩 Payment request notification tapped: \(requestId)", context: "PushNotificationManager")
-                // Post notification for UI to handle
+        if let type = userInfo["type"] as? String {
+            switch type {
+            case "paykit_noise_request", "paykit_payment_request":
+                if let requestId = userInfo["requestId"] as? String {
+                    Logger.info("📩 Payment request notification tapped: \(requestId)", context: "PushNotificationManager")
+                    NotificationCenter.default.post(
+                        name: .paykitRequestPayment,
+                        object: nil,
+                        userInfo: ["requestId": requestId]
+                    )
+                }
+                
+            case "paykit_subscription_proposal":
+                if let subscriptionId = userInfo["subscriptionId"] as? String {
+                    Logger.info("📩 Subscription proposal notification tapped: \(subscriptionId)", context: "PushNotificationManager")
+                    NotificationCenter.default.post(
+                        name: .paykitSubscriptionProposal,
+                        object: nil,
+                        userInfo: ["subscriptionId": subscriptionId]
+                    )
+                }
+                
+            case "paykit_payment_failed":
+                Logger.info("📩 Payment failed notification tapped", context: "PushNotificationManager")
                 NotificationCenter.default.post(
-                    name: .paykitRequestPayment,
+                    name: .paykitPaymentFailed,
                     object: nil,
-                    userInfo: ["requestId": requestId]
+                    userInfo: userInfo as? [String: Any] ?? [:]
                 )
+                
+            default:
+                break
             }
-            return
         }
     }
 

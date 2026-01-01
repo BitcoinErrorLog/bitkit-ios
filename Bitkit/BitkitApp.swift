@@ -6,8 +6,10 @@ import SwiftUI
 // Communication bridge between delegates and SwiftUI views
 extension Notification.Name {
     static let quickActionSelected = Notification.Name("quickActionSelected")
-    static let paykitRequestPayment = Notification.Name("paykitRequestPayment")
     static let paykitPayContact = Notification.Name("paykitPayContact")
+    static let paykitPaymentFailed = Notification.Name("paykitPaymentFailed")
+    static let paykitRequestPayment = Notification.Name("paykitRequestPayment")
+    static let paykitSubscriptionProposal = Notification.Name("paykitSubscriptionProposal")
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
