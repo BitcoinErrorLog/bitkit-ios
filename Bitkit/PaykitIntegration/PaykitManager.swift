@@ -69,6 +69,9 @@ public final class PaykitManager {
             lightningNetwork: lightningNetwork.toFfi()
         )
         
+        // Initialize DirectoryService with client for payment method discovery
+        DirectoryService.shared.initialize(client: client!)
+        
         // Restore persisted sessions and configure SDK
         PubkyRingBridge.shared.restoreSessions()
         PubkySDKService.shared.restoreSessions()

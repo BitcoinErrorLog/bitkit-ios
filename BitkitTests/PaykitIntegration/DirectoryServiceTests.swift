@@ -184,4 +184,112 @@ final class DirectoryServiceTests: XCTestCase {
         XCTAssertFalse(contact.hasPaymentMethods)
         XCTAssertTrue(contact.supportedMethods.isEmpty)
     }
+    
+    // MARK: - Profile Operations Tests
+    
+    func testPublishProfileThrowsWhenNotConfigured() async throws {
+        // Given - directory service without authenticated adapter
+        let unconfiguredService = DirectoryService()
+        let profile = PubkyProfile(name: "Test User", bio: "Test bio")
+        
+        // When/Then - should throw notConfigured error
+        do {
+            try await unconfiguredService.publishProfile(profile)
+            XCTFail("Expected error to be thrown")
+        } catch let error as DirectoryError {
+            if case .notConfigured = error {
+                // Expected
+            } else {
+                XCTFail("Expected notConfigured error, got: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - Follows Operations Tests
+    
+    func testAddFollowThrowsWhenNotConfigured() async throws {
+        // Given - directory service without authenticated adapter
+        let unconfiguredService = DirectoryService()
+        
+        // When/Then - should throw notConfigured error
+        do {
+            try await unconfiguredService.addFollow(pubkey: "pk:testfollow123")
+            XCTFail("Expected error to be thrown")
+        } catch let error as DirectoryError {
+            if case .notConfigured = error {
+                // Expected
+            } else {
+                XCTFail("Expected notConfigured error, got: \(error)")
+            }
+        }
+    }
+    
+    func testRemoveFollowThrowsWhenNotConfigured() async throws {
+        // Given - directory service without authenticated adapter
+        let unconfiguredService = DirectoryService()
+        
+        // When/Then - should throw notConfigured error
+        do {
+            try await unconfiguredService.removeFollow(pubkey: "pk:testfollow123")
+            XCTFail("Expected error to be thrown")
+        } catch let error as DirectoryError {
+            if case .notConfigured = error {
+                // Expected
+            } else {
+                XCTFail("Expected notConfigured error, got: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - PubkyConfig Tests
+    
+    func testPubkyConfigHomeserverBaseURL() {
+        // Test that homeserverBaseURL returns the production URL for default pubkey
+        let url = PubkyConfig.homeserverBaseURL()
+        XCTAssertEqual(url, "https://homeserver.pubky.app")
+    }
+    
+    func testPubkyConfigHomeserverBaseURLWithStagingPubkey() {
+        // Test that staging pubkey maps to staging URL
+        let url = PubkyConfig.homeserverBaseURL(for: PubkyConfig.stagingHomeserverPubkey)
+        XCTAssertEqual(url, "https://staging.homeserver.pubky.app")
+    }
+    
+    func testPubkyConfigHomeserverBaseURLWithUnknownPubkey() {
+        // Test that unknown pubkeys fall back to production URL
+        let customPubkey = "unknownpubkey123456789"
+        let url = PubkyConfig.homeserverBaseURL(for: customPubkey)
+        XCTAssertEqual(url, "https://homeserver.pubky.app")
+    }
+    
+    // MARK: - PubkyProfile Tests
+    
+    func testPubkyProfileInitialization() {
+        let links = [
+            PubkyProfileLink(title: "Website", url: "https://example.com"),
+            PubkyProfileLink(title: "Twitter", url: "https://twitter.com/test")
+        ]
+        
+        let profile = PubkyProfile(
+            name: "Test User",
+            bio: "This is a test bio",
+            avatar: "https://example.com/avatar.png",
+            links: links
+        )
+        
+        XCTAssertEqual(profile.name, "Test User")
+        XCTAssertEqual(profile.bio, "This is a test bio")
+        XCTAssertEqual(profile.avatar, "https://example.com/avatar.png")
+        XCTAssertEqual(profile.links?.count, 2)
+        XCTAssertEqual(profile.links?.first?.title, "Website")
+    }
+    
+    func testPubkyProfileWithOptionalFields() {
+        let profile = PubkyProfile()
+        
+        XCTAssertNil(profile.name)
+        XCTAssertNil(profile.bio)
+        XCTAssertNil(profile.avatar)
+        XCTAssertNil(profile.links)
+    }
 }

@@ -258,6 +258,7 @@ struct ContactDiscoveryView: View {
             
             BodyLText("No Contacts Found")
                 .foregroundColor(.textPrimary)
+                .accessibilityIdentifier("No contacts found")
             
             BodyMText(filterMethod != nil ?
                 "No contacts with \(filterMethod!) endpoints found" :
@@ -637,7 +638,7 @@ class ContactDiscoveryViewModel: ObservableObject {
     
     init(identityName: String = "default") {
         self.identityName = identityName
-        self.directoryService = DirectoryService()
+        self.directoryService = DirectoryService.shared
         self.contactStorage = ContactStorage(identityName: identityName)
     }
     
@@ -716,9 +717,27 @@ class ContactDiscoveryViewModel: ObservableObject {
     }
     
     func checkEndpointHealth(for contact: DirectoryDiscoveredContact) async {
-        // TODO: Implement endpoint health check when DirectoryService supports it
-        // For now, just refresh data
-        loadFollows()
+        var updatedContact = contact
+        
+        for method in contact.supportedMethods {
+            do {
+                // Attempt to discover payment methods to verify endpoint is reachable
+                _ = try await directoryService.discoverPaymentMethods(for: contact.pubkey)
+                updatedContact.endpointHealth[method] = true
+            } catch {
+                updatedContact.endpointHealth[method] = false
+                Logger.debug("Health check failed for \(contact.pubkey) method \(method): \(error)", context: "ContactDiscovery")
+            }
+            updatedContact.lastHealthCheckDates[method] = Date()
+        }
+        
+        // Update the contact in the list
+        await MainActor.run {
+            if let index = discoveredContacts.firstIndex(where: { $0.pubkey == contact.pubkey }) {
+                discoveredContacts[index] = updatedContact
+            }
+            updateHealthStats()
+        }
     }
 }
 

@@ -58,12 +58,13 @@ struct ProfileEditView: View {
                             BodySText("Display Name")
                                 .foregroundColor(.textSecondary)
                             
-                            TextField("Enter your name", text: $name)
-                                .textFieldStyle(.plain)
-                                .padding(12)
-                                .background(Color.gray6)
-                                .cornerRadius(8)
-                                .foregroundColor(.white)
+                        TextField("Enter your name", text: $name)
+                            .textFieldStyle(.plain)
+                            .padding(12)
+                            .background(Color.gray6)
+                            .cornerRadius(8)
+                            .foregroundColor(.white)
+                            .accessibilityIdentifier("Display Name")
                         }
                         .padding(.horizontal, 16)
                         
@@ -107,6 +108,7 @@ struct ProfileEditView: View {
                                     .foregroundColor(.green)
                                 BodySText(success)
                                     .foregroundColor(.green)
+                                    .accessibilityIdentifier("Profile published successfully")
                             }
                             .padding(.horizontal, 16)
                         }

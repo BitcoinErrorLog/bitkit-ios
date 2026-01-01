@@ -53,77 +53,41 @@ public final class PubkyStorageAdapter {
     }
     
     /// Read a file from Pubky storage (unauthenticated)
+    /// Callers must pass a PubkyUnauthenticatedStorageAdapter, not an FFI transport
     public func readFile(path: String, adapter: Any, ownerPubkey: String) async throws -> Data? {
-        if let unauthAdapter = adapter as? PubkyUnauthenticatedStorageAdapter {
-            let result = unauthAdapter.get(ownerPubkey: ownerPubkey, path: path)
-            if !result.success {
-                if result.error?.contains("404") == true {
-                    return nil
-                }
-                throw PubkyStorageError.retrieveFailed(result.error ?? "Unknown error")
-            }
-            return result.content?.data(using: .utf8)
-        } else if let _ = adapter as? UnauthenticatedTransportFfi {
-            // For FFI transport, use URLSession directly
-            let urlString = "https://homeserver.pubky.app/\(ownerPubkey)\(path)"
-            guard let url = URL(string: urlString) else { return nil }
-            
-            let (data, response) = try await session.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse else { return nil }
-            
-            if httpResponse.statusCode == 404 {
+        guard let unauthAdapter = adapter as? PubkyUnauthenticatedStorageAdapter else {
+            throw PubkyStorageError.retrieveFailed("Invalid adapter type - expected PubkyUnauthenticatedStorageAdapter")
+        }
+        
+        let result = unauthAdapter.get(ownerPubkey: ownerPubkey, path: path)
+        if !result.success {
+            if result.error?.contains("404") == true {
                 return nil
             }
-            if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
-                return data
-            }
-            throw PubkyStorageError.retrieveFailed("HTTP \(httpResponse.statusCode)")
+            throw PubkyStorageError.retrieveFailed(result.error ?? "Unknown error")
         }
-        return nil
+        return result.content?.data(using: .utf8)
     }
     
     /// Write a file to Pubky storage (requires authentication)
-    public func writeFile(path: String, data: Data, transport: AuthenticatedTransportFfi) async throws {
+    /// Uses the authenticated adapter which properly sets session cookies
+    public func writeFile(path: String, data: Data, adapter: PubkyAuthenticatedStorageAdapter) async throws {
         let content = String(data: data, encoding: .utf8) ?? ""
-        let urlString = "https://homeserver.pubky.app\(path)"
-        guard let url = URL(string: urlString) else {
-            throw PubkyStorageError.saveFailed("Invalid URL")
+        let result = adapter.put(path: path, content: content)
+        if !result.success {
+            throw PubkyStorageError.saveFailed(result.error ?? "Unknown error")
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = content.data(using: .utf8)
-        
-        let (_, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PubkyStorageError.saveFailed("Invalid HTTP response")
-        }
-        
-        if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
-            throw PubkyStorageError.saveFailed("HTTP \(httpResponse.statusCode)")
-        }
+        Logger.debug("Wrote file to Pubky: \(path)", context: "PubkyStorageAdapter")
     }
     
     /// Delete a file from Pubky storage (requires authentication)
-    public func deleteFile(path: String, transport: AuthenticatedTransportFfi) async throws {
-        let urlString = "https://homeserver.pubky.app\(path)"
-        guard let url = URL(string: urlString) else {
-            throw PubkyStorageError.deleteFailed("Invalid URL")
+    /// Uses the authenticated adapter which properly sets session cookies
+    public func deleteFile(path: String, adapter: PubkyAuthenticatedStorageAdapter) async throws {
+        let result = adapter.delete(path: path)
+        if !result.success {
+            throw PubkyStorageError.deleteFailed(result.error ?? "Unknown error")
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        
-        let (_, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PubkyStorageError.deleteFailed("Invalid HTTP response")
-        }
-        
-        // 204 No Content, 200 OK, or 404 Not Found are all valid
-        if httpResponse.statusCode < 200 || (httpResponse.statusCode >= 300 && httpResponse.statusCode != 404) {
-            throw PubkyStorageError.deleteFailed("HTTP \(httpResponse.statusCode)")
-        }
+        Logger.debug("Deleted file from Pubky: \(path)", context: "PubkyStorageAdapter")
     }
 }
 
@@ -163,11 +127,8 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     }
     
     public func get(ownerPubkey: String, path: String) -> StorageGetResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)/pubky\(ownerPubkey)\(path)"
-        } else {
-            "https://_pubky.\(ownerPubkey)\(path)"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)/pubky\(ownerPubkey)\(path)"
         
         guard let url = URL(string: urlString) else {
             return StorageGetResult(success: false, content: nil, error: "Invalid URL")
@@ -207,11 +168,8 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     }
     
     public func list(ownerPubkey: String, prefix: String) -> StorageListResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)/pubky\(ownerPubkey)\(prefix)?shallow=true"
-        } else {
-            "https://_pubky.\(ownerPubkey)\(prefix)?shallow=true"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)/pubky\(ownerPubkey)\(prefix)?shallow=true"
         
         guard let url = URL(string: urlString) else {
             return StorageListResult(success: false, entries: [], error: "Invalid URL")
@@ -284,11 +242,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func put(path: String, content: String) -> StorageOperationResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
-        } else {
-            "https://homeserver.pubky.app\(path)"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(path)"
         
         guard let url = URL(string: urlString) else {
             return StorageOperationResult(success: false, error: "Invalid URL")
@@ -331,11 +286,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func get(path: String) -> StorageGetResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
-        } else {
-            "https://homeserver.pubky.app\(path)"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(path)"
         
         guard let url = URL(string: urlString) else {
             return StorageGetResult(success: false, content: nil, error: "Invalid URL")
@@ -379,11 +331,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func delete(path: String) -> StorageOperationResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(path)"
-        } else {
-            "https://homeserver.pubky.app\(path)"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(path)"
         
         guard let url = URL(string: urlString) else {
             return StorageOperationResult(success: false, error: "Invalid URL")
@@ -424,11 +373,8 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
     }
     
     public func list(prefix: String) -> StorageListResult {
-        let urlString = if let baseURL = homeserverBaseURL {
-            "\(baseURL)\(prefix)?shallow=true"
-        } else {
-            "https://homeserver.pubky.app\(prefix)?shallow=true"
-        }
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(prefix)?shallow=true"
         
         guard let url = URL(string: urlString) else {
             return StorageListResult(success: false, entries: [], error: "Invalid URL")

@@ -26,8 +26,8 @@ public final class PubkySDKService {
     
     // MARK: - Configuration
     
-    /// Current homeserver URL
-    public private(set) var homeserver: String = PubkyConfig.defaultHomeserver
+    /// Current homeserver URL (resolved from pubkey to actual URL)
+    public private(set) var homeserver: String = PubkyConfig.homeserverBaseURL()
     
     /// Profile cache to avoid repeated fetches
     private var profileCache: [String: CachedProfile] = [:]
@@ -45,9 +45,9 @@ public final class PubkySDKService {
     
     // MARK: - Public API
     
-    /// Configure the service with a homeserver
+    /// Configure the service with a homeserver base URL
     public func configure(homeserver: String? = nil) {
-        self.homeserver = homeserver ?? PubkyConfig.defaultHomeserver
+        self.homeserver = homeserver ?? PubkyConfig.homeserverBaseURL()
         Logger.info("PubkySDKService configured with homeserver: \(self.homeserver)", context: "PubkySDKService")
     }
     
@@ -96,9 +96,8 @@ public final class PubkySDKService {
         let profilePath = "/pub/\(app)/profile.json"
         let pubkyStorage = PubkyStorageAdapter.shared
         let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserver)
-        let transport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
         
-        guard let data = try await pubkyStorage.readFile(path: profilePath, adapter: transport, ownerPubkey: pubkey) else {
+        guard let data = try await pubkyStorage.readFile(path: profilePath, adapter: adapter, ownerPubkey: pubkey) else {
             throw PubkySDKError.notFound
         }
         

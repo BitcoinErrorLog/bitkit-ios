@@ -12,15 +12,16 @@ import Foundation
 // MARK: - Pubky Homeserver Configuration
 
 /// Configuration for Pubky homeserver connections
+/// Uses HomeserverResolver for centralized pubkey-to-URL resolution
 public struct PubkyConfig {
     /// Production homeserver pubkey (Synonym mainnet)
-    public static let productionHomeserver = "8um71us3fyw6h8wbcxb5ar3rwusy1a6u49956ikzojg3gcwd1dty"
+    public static let productionHomeserverPubkey = HomeserverDefaults.productionPubkey.value
     
     /// Staging homeserver pubkey (Synonym staging)
-    public static let stagingHomeserver = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy"
+    public static let stagingHomeserverPubkey = HomeserverDefaults.stagingPubkey.value
     
-    /// Default homeserver to use
-    public static let defaultHomeserver = productionHomeserver
+    /// Default homeserver pubkey to use
+    public static let defaultHomeserver = productionHomeserverPubkey
     
     /// Pubky app URL for production
     public static let productionAppUrl = "https://pubky.app"
@@ -29,9 +30,9 @@ public struct PubkyConfig {
     public static let stagingAppUrl = "https://staging.pubky.app"
     
     /// Get the homeserver base URL for directory operations
-    public static func homeserverUrl(for homeserver: String = defaultHomeserver) -> String {
-        // The homeserver pubkey is used as the base for directory operations
-        return homeserver
+    /// Uses HomeserverResolver for centralized resolution with caching
+    public static func homeserverBaseURL(for pubkey: String = defaultHomeserver) -> String {
+        return HomeserverResolver.shared.resolve(pubkeyString: pubkey)
     }
 }
 
@@ -45,6 +46,7 @@ public final class DirectoryService {
     private var directoryOps: DirectoryOperationsAsync?
     private var unauthenticatedTransport: UnauthenticatedTransportFfi?
     private var authenticatedTransport: AuthenticatedTransportFfi?
+    private var authenticatedAdapter: PubkyAuthenticatedStorageAdapter?
     private var homeserverBaseURL: String?
     
     private init() {
@@ -66,9 +68,9 @@ public final class DirectoryService {
     }
     
     /// Configure Pubky transport for directory operations
-    /// - Parameter homeserverBaseURL: The homeserver pubkey (defaults to PubkyConfig.defaultHomeserver)
+    /// - Parameter homeserverBaseURL: The homeserver base URL (defaults to resolved PubkyConfig URL)
     public func configurePubkyTransport(homeserverBaseURL: String? = nil) {
-        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.defaultHomeserver
+        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
         let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: self.homeserverBaseURL)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
     }
@@ -77,22 +79,44 @@ public final class DirectoryService {
     /// - Parameters:
     ///   - sessionId: The session ID from Pubky-ring
     ///   - ownerPubkey: The owner's public key
-    ///   - homeserverBaseURL: The homeserver pubkey (defaults to PubkyConfig.defaultHomeserver)
+    ///   - homeserverBaseURL: The homeserver base URL (defaults to resolved PubkyConfig URL)
     public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: String, homeserverBaseURL: String? = nil) {
-        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.defaultHomeserver
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: sessionId, homeserverBaseURL: self.homeserverBaseURL)
-        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: ownerPubkey)
+        self.homeserverBaseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        
+        // Store adapter for write operations
+        authenticatedAdapter = PubkyAuthenticatedStorageAdapter(
+            sessionId: sessionId,
+            homeserverBaseURL: self.homeserverBaseURL
+        )
+        
+        // Configure transport for FFI operations
+        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(
+            callback: authenticatedAdapter!,
+            ownerPubkey: ownerPubkey
+        )
+        
+        // Also rebuild unauthenticated transport with new URL to prevent stale cached transport
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: self.homeserverBaseURL)
+        unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
     }
     
     /// Configure transport using a Pubky session from Pubky-ring
     public func configureWithPubkySession(_ session: PubkyRingSession) {
-        homeserverBaseURL = PubkyConfig.defaultHomeserver
+        homeserverBaseURL = PubkyConfig.homeserverBaseURL()
         
-        // Configure authenticated transport
-        let adapter = PubkyAuthenticatedStorageAdapter(sessionId: session.sessionSecret, homeserverBaseURL: homeserverBaseURL)
-        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(callback: adapter, ownerPubkey: session.pubkey)
+        // Store authenticated adapter for write operations (uses session cookie)
+        authenticatedAdapter = PubkyAuthenticatedStorageAdapter(
+            sessionId: session.sessionSecret,
+            homeserverBaseURL: homeserverBaseURL
+        )
         
-        // Also configure unauthenticated transport
+        // Configure authenticated transport for FFI operations
+        authenticatedTransport = AuthenticatedTransportFfi.fromCallback(
+            callback: authenticatedAdapter!,
+            ownerPubkey: session.pubkey
+        )
+        
+        // Also configure unauthenticated transport for read operations
         let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
         
@@ -238,18 +262,13 @@ public final class DirectoryService {
     
     /// Fetch profile using direct FFI (fallback)
     private func fetchProfileViaFFI(for pubkey: String) async throws -> PubkyProfile? {
-        let adapter = unauthenticatedTransport ?? {
-            let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
-            let transport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
-            unauthenticatedTransport = transport
-            return transport
-        }()
+        let storageAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL ?? PubkyConfig.homeserverBaseURL())
         
         let profilePath = "/pub/pubky.app/profile.json"
         let pubkyStorage = PubkyStorageAdapter.shared
         
         do {
-            if let data = try await pubkyStorage.readFile(path: profilePath, adapter: adapter, ownerPubkey: pubkey) {
+            if let data = try await pubkyStorage.readFile(path: profilePath, adapter: storageAdapter, ownerPubkey: pubkey) {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     return PubkyProfile(
                         name: json["name"] as? String,
@@ -271,7 +290,7 @@ public final class DirectoryService {
     
     /// Publish profile to Pubky directory
     public func publishProfile(_ profile: PubkyProfile) async throws {
-        guard let transport = authenticatedTransport else {
+        guard let adapter = authenticatedAdapter else {
             throw DirectoryError.notConfigured
         }
         
@@ -287,7 +306,7 @@ public final class DirectoryService {
         }
         
         let data = try JSONSerialization.data(withJSONObject: profileDict)
-        try await pubkyStorage.writeFile(path: profilePath, data: data, transport: transport)
+        try await pubkyStorage.writeFile(path: profilePath, data: data, adapter: adapter)
         Logger.info("Published profile to Pubky directory", context: "DirectoryService")
     }
     
@@ -326,23 +345,17 @@ public final class DirectoryService {
     
     /// Fetch follows using direct FFI (fallback)
     private func fetchFollowsViaFFI(ownerPubkey: String) async throws -> [String] {
-        let adapter = unauthenticatedTransport ?? {
-            let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
-            let transport = UnauthenticatedTransportFfi.fromCallback(callback: adapter)
-            unauthenticatedTransport = transport
-            return transport
-        }()
+        let storageAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL ?? PubkyConfig.homeserverBaseURL())
         
         let pubkyStorage = PubkyStorageAdapter.shared
         let followsPath = "/pub/pubky.app/follows/"
-        let unauthenticatedAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
         
-        return try await pubkyStorage.listDirectory(path: followsPath, adapter: unauthenticatedAdapter, ownerPubkey: ownerPubkey)
+        return try await pubkyStorage.listDirectory(path: followsPath, adapter: storageAdapter, ownerPubkey: ownerPubkey)
     }
     
     /// Add a follow to the Pubky directory
     public func addFollow(pubkey: String) async throws {
-        guard let transport = authenticatedTransport else {
+        guard let adapter = authenticatedAdapter else {
             throw DirectoryError.notConfigured
         }
         
@@ -350,20 +363,20 @@ public final class DirectoryService {
         let followPath = "/pub/pubky.app/follows/\(pubkey)"
         let data = "{}".data(using: .utf8)!
         
-        try await pubkyStorage.writeFile(path: followPath, data: data, transport: transport)
+        try await pubkyStorage.writeFile(path: followPath, data: data, adapter: adapter)
         Logger.info("Added follow: \(pubkey)", context: "DirectoryService")
     }
     
     /// Remove a follow from the Pubky directory
     public func removeFollow(pubkey: String) async throws {
-        guard let transport = authenticatedTransport else {
+        guard let adapter = authenticatedAdapter else {
             throw DirectoryError.notConfigured
         }
         
         let pubkyStorage = PubkyStorageAdapter.shared
         let followPath = "/pub/pubky.app/follows/\(pubkey)"
         
-        try await pubkyStorage.deleteFile(path: followPath, transport: transport)
+        try await pubkyStorage.deleteFile(path: followPath, adapter: adapter)
         Logger.info("Removed follow: \(pubkey)", context: "DirectoryService")
     }
     
