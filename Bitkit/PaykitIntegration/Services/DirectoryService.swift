@@ -680,7 +680,8 @@ public final class DirectoryService {
                 fromPubkey: json["from_pubkey"] as? String ?? "",
                 amountSats: (json["amount_sats"] as? Int64) ?? 0,
                 description: json["description"] as? String,
-                createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)))
+                createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970))),
+                frequency: nil
             )
         } catch {
             Logger.error("Failed to decrypt/parse payment request \(requestId): \(error)", context: "DirectoryService")

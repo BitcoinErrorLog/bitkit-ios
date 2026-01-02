@@ -246,7 +246,8 @@ public final class PaykitPollingService {
                         fromPubkey: proposal.providerPubkey,
                         amountSats: proposal.amountSats,
                         description: proposal.description,
-                        createdAt: proposal.createdAt
+                        createdAt: proposal.createdAt,
+                        frequency: proposal.frequency
                     )
                     if !seenRequestIds.contains(request.requestId) {
                         seenRequestIds.insert(request.requestId)
@@ -318,7 +319,7 @@ public final class PaykitPollingService {
             providerPubkey: request.fromPubkey,
             amountSats: request.amountSats,
             currency: "SAT",
-            frequency: "monthly",
+            frequency: request.frequency ?? "monthly",
             description: request.description ?? "",
             methodId: "lightning",
             maxPayments: nil,
@@ -575,6 +576,7 @@ public struct DiscoveredRequest {
     public let amountSats: Int64
     public let description: String?
     public let createdAt: Date
+    public let frequency: String?
 }
 
 public enum DiscoveredRequestType {
