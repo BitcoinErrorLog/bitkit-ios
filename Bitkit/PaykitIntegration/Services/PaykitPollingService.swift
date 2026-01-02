@@ -303,8 +303,38 @@ public final class PaykitPollingService {
     }
     
     private func handleSubscriptionProposal(_ request: DiscoveredRequest) async {
-        // Subscription proposals always need manual approval
-        await sendSubscriptionProposalNotification(for: request)
+        let storage = SubscriptionStorage()
+        
+        // Check if already seen (prevents duplicate notifications across restarts)
+        if storage.hasSeenProposal(id: request.requestId) {
+            Logger.debug("PaykitPollingService: Proposal \(request.requestId) already seen, skipping notification", context: "PaykitPollingService")
+            return
+        }
+        
+        // Persist the proposal and mark as seen
+        let proposal = SubscriptionProposal(
+            id: request.requestId,
+            providerName: String(request.fromPubkey.prefix(8)),
+            providerPubkey: request.fromPubkey,
+            amountSats: request.amountSats,
+            currency: "SAT",
+            frequency: "monthly",
+            description: request.description ?? "",
+            methodId: "lightning",
+            maxPayments: nil,
+            startDate: nil,
+            createdAt: request.createdAt
+        )
+        
+        do {
+            try storage.saveProposal(proposal)
+            try storage.markProposalAsSeen(id: request.requestId)
+            
+            // Only notify for new proposals
+            await sendSubscriptionProposalNotification(for: request)
+        } catch {
+            Logger.error("PaykitPollingService: Failed to persist proposal: \(error)", context: "PaykitPollingService")
+        }
     }
     
     // MARK: - Auto-Pay Evaluation

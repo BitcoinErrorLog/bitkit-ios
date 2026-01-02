@@ -40,7 +40,7 @@ class SubscriptionsViewModel: ObservableObject {
     }
     
     func loadProposals() {
-        proposals = subscriptionStorage.listProposals()
+        proposals = subscriptionStorage.pendingProposals()
     }
     
     func loadPaymentHistory() {
@@ -102,7 +102,8 @@ class SubscriptionsViewModel: ObservableObject {
     }
     
     func declineProposal(_ proposal: SubscriptionProposal) throws {
-        try subscriptionStorage.deleteProposal(id: proposal.id)
+        // Mark as declined locally (no remote delete in provider-storage model)
+        try subscriptionStorage.markProposalAsDeclined(id: proposal.id)
         loadProposals()
     }
     

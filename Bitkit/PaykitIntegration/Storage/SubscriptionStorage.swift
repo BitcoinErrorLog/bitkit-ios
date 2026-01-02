@@ -21,6 +21,12 @@ public class SubscriptionStorage {
     private var subscriptionsKey: String { "paykit.subscriptions.\(identityName)" }
     private var proposalsKey: String { "paykit.proposals.\(identityName)" }
     private var paymentsKey: String { "paykit.payments.\(identityName)" }
+    private var seenProposalIdsKey: String { "paykit.proposals.seen.\(identityName)" }
+    private var declinedProposalIdsKey: String { "paykit.proposals.declined.\(identityName)" }
+    
+    // Additional caches for seen/declined IDs
+    private var seenProposalIdsCache: Set<String>?
+    private var declinedProposalIdsCache: Set<String>?
     
     public init(identityName: String = "default", keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
         self.identityName = identityName
@@ -147,6 +153,81 @@ public class SubscriptionStorage {
         try persistProposals(proposals)
     }
     
+    /// Get pending proposals (not declined)
+    public func pendingProposals() -> [SubscriptionProposal] {
+        let declined = getDeclinedProposalIds()
+        return listProposals().filter { !declined.contains($0.id) }
+    }
+    
+    // MARK: - Seen IDs (for deduplication)
+    
+    /// Check if a proposal has been seen (notified about)
+    public func hasSeenProposal(id: String) -> Bool {
+        return getSeenProposalIds().contains(id)
+    }
+    
+    /// Mark a proposal as seen (prevents duplicate notifications)
+    public func markProposalAsSeen(id: String) throws {
+        var seen = getSeenProposalIds()
+        seen.insert(id)
+        try persistSeenProposalIds(seen)
+    }
+    
+    /// Mark a proposal as declined (hides from inbox)
+    public func markProposalAsDeclined(id: String) throws {
+        var declined = getDeclinedProposalIds()
+        declined.insert(id)
+        try persistDeclinedProposalIds(declined)
+    }
+    
+    private func getSeenProposalIds() -> Set<String> {
+        if let cached = seenProposalIdsCache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: seenProposalIdsKey) else {
+                return []
+            }
+            let ids = try JSONDecoder().decode(Set<String>.self, from: data)
+            seenProposalIdsCache = ids
+            return ids
+        } catch {
+            Logger.error("Failed to load seen proposal IDs: \(error)", context: "SubscriptionStorage")
+            return []
+        }
+    }
+    
+    private func getDeclinedProposalIds() -> Set<String> {
+        if let cached = declinedProposalIdsCache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: declinedProposalIdsKey) else {
+                return []
+            }
+            let ids = try JSONDecoder().decode(Set<String>.self, from: data)
+            declinedProposalIdsCache = ids
+            return ids
+        } catch {
+            Logger.error("Failed to load declined proposal IDs: \(error)", context: "SubscriptionStorage")
+            return []
+        }
+    }
+    
+    private func persistSeenProposalIds(_ ids: Set<String>) throws {
+        let data = try JSONEncoder().encode(ids)
+        try keychain.store(key: seenProposalIdsKey, data: data)
+        seenProposalIdsCache = ids
+    }
+    
+    private func persistDeclinedProposalIds(_ ids: Set<String>) throws {
+        let data = try JSONEncoder().encode(ids)
+        try keychain.store(key: declinedProposalIdsKey, data: data)
+        declinedProposalIdsCache = ids
+    }
+    
     // MARK: - Payment History CRUD
     
     public func listPayments() -> [SubscriptionPayment] {
@@ -183,6 +264,8 @@ public class SubscriptionStorage {
         try persistSubscriptions([])
         try persistProposals([])
         try persistPayments([])
+        try persistSeenProposalIds([])
+        try persistDeclinedProposalIds([])
     }
     
     // MARK: - Private Persistence
