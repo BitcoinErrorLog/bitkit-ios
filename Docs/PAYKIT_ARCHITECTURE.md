@@ -108,25 +108,40 @@ The Pubky directory uses two namespaces with distinct purposes:
 ### paykit.app namespace (payment features only)
 ```
 /pub/paykit.app/v0/
-  ├── endpoints/                # Payment endpoints
-  │   └── {methodId}.json       # Endpoint configuration (Lightning, onchain, etc.)
-  ├── requests/                 # Payment requests
-  │   └── {recipientPubkey}/    # Requests addressed to this recipient
-  │       └── {requestId}       # Request metadata (amount, memo, expiry)
-  ├── subscriptions/            # Subscription data
-  │   └── proposals/{recipientPubkey}/ # Subscription proposals
-  │       └── {proposalId}      # Proposal metadata (amount, frequency, etc.)
-  └── handoff/                  # Cross-device handoff data
-      └── {requestId}           # Handoff payload for cross-device auth
+  ├── {methodId}.json           # Payment endpoints (Lightning, onchain, etc.)
+  ├── noise                     # Noise endpoint (public key for encryption)
+  ├── requests/                 # Payment requests (on sender's storage)
+  │   └── {recipient_scope}/    # Hashed directory for recipient
+  │       └── {requestId}       # Sealed Blob v1 encrypted request
+  ├── subscriptions/
+  │   └── proposals/            # Subscription proposals (on provider's storage)
+  │       └── {subscriber_scope}/ # Hashed directory for subscriber
+  │           └── {proposalId}  # Sealed Blob v1 encrypted proposal
+  └── handoff/                  # Cross-device handoff data (on Ring user's storage)
+      └── {requestId}           # Sealed Blob v1 encrypted handoff payload
 ```
 
+**Scope Derivation:**
+- `{recipient_scope}` and `{subscriber_scope}` are SHA-256 hashes of the normalized pubkey
+- Algorithm: `scope = hex(sha256(utf8(normalize(pubkey_z32))))`
+- Normalization: trim whitespace, strip `pk:` prefix, lowercase
+
+**Storage Model:**
+- Payment requests stored on **sender's** storage (sender-storage model)
+- Subscription proposals stored on **provider's** storage
+- Recipients discover by polling known contacts' storage
+
+**Encryption:**
+- All requests and proposals use Sealed Blob v1 encryption
+- AAD binds ciphertext to storage path (prevents relocation attacks)
+- No plaintext fallback (mandatory encryption)
+
 **Directory Path Conventions:**
-- All paths use z-base32 encoded pubkeys
-- JSON files contain UTF-8 encoded metadata
-- Files are versioned and can be updated atomically
+- Files contain Sealed Blob v1 JSON envelopes
 - Directory listings return file names, not contents (for privacy)
 - Authentication required for write operations
 - Read operations are public (unauthenticated)
+- Recipients cannot delete remote files (local-only dedup)
 
 **Example Request File Structure:**
 ```json
