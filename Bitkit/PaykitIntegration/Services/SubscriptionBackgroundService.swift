@@ -276,12 +276,26 @@ public class SubscriptionBackgroundService {
     
     // MARK: - Notifications
     
-    /// Schedule notifications for upcoming subscription payments
+    /// Schedule notifications for upcoming subscription payments.
+    /// Notifications are throttled to once per subscription per billing period.
     public func scheduleUpcomingPaymentNotifications() async {
         let upcomingSubscriptions = getUpcomingSubscriptions(withinHours: notifyBeforeHours)
-        
+        let defaults = UserDefaults.standard
+
         for subscription in upcomingSubscriptions {
+            guard let nextPaymentAt = subscription.nextPaymentAt else { continue }
+            
+            // Create unique key for this billing cycle
+            let notificationKey = "notified_\(subscription.id)_\(Int(nextPaymentAt.timeIntervalSince1970))"
+            
+            // Check if we've already notified for this billing cycle
+            if defaults.bool(forKey: notificationKey) {
+                continue
+            }
+            
+            // Schedule notification and mark as notified
             await schedulePaymentDueNotification(subscription: subscription)
+            defaults.set(true, forKey: notificationKey)
         }
     }
     
