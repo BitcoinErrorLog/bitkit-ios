@@ -732,9 +732,22 @@ public final class DirectoryService {
                 return nil
             }
             
+            let providerPubkey = json["provider_pubkey"] as? String ?? ""
+            
+            // SECURITY: Verify provider identity binding
+            // The provider_pubkey in the proposal must match the peer we're polling
+            if !providerPubkey.isEmpty {
+                let normalizedExpected = try PaykitV0Protocol.normalizePubkeyZ32(peerPubkey)
+                let normalizedActual = try PaykitV0Protocol.normalizePubkeyZ32(providerPubkey)
+                if normalizedExpected != normalizedActual {
+                    Logger.error("Provider identity mismatch for proposal \(proposalId): expected \(normalizedExpected), got \(normalizedActual)", context: "DirectoryService")
+                    return nil
+                }
+            }
+            
             return DiscoveredSubscriptionProposal(
                 subscriptionId: proposalId,
-                providerPubkey: json["provider_pubkey"] as? String ?? "",
+                providerPubkey: providerPubkey,
                 amountSats: (json["amount_sats"] as? Int64) ?? 0,
                 description: json["description"] as? String,
                 frequency: json["frequency"] as? String ?? "monthly",
