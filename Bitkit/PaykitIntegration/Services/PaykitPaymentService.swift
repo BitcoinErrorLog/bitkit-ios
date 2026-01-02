@@ -363,7 +363,10 @@ public final class PaykitPaymentService {
         }
     }
     
-    /// Execute a Paykit URI payment.
+    /// Execute a Paykit URI payment with fallback loop.
+    ///
+    /// Attempts payment using the primary method first, then fallbacks in order.
+    /// Stops on success or non-retryable error to avoid double-spend.
     ///
     /// - Parameters:
     ///   - uri: The Paykit URI (e.g., "paykit:pubkey" or "pip:pubkey")
@@ -377,32 +380,82 @@ public final class PaykitPaymentService {
         
         // Discover payment methods for the recipient
         let methods = try await directoryService.discoverPaymentMethods(for: pubkey)
-        guard let firstMethod = methods.first else {
+        guard !methods.isEmpty else {
             throw PaykitPaymentError.invalidRecipient("No payment methods found for \(pubkey)")
         }
         
-        // Execute payment using the first available method
         guard let client = manager.client else {
             throw PaykitPaymentError.notInitialized
         }
         
+        // Build ordered methods using selection
+        let orderedMethods = await buildOrderedPaymentMethods(for: pubkey, methods: methods, amountSats: amountSats ?? 0)
+        
         let amount = amountSats ?? 0
-        let result = try client.executePayment(
-            methodId: firstMethod.methodId,
-            endpoint: firstMethod.endpoint,
-            amountSats: amount,
-            metadataJson: nil
-        )
+        var attemptedMethods: [String] = []
+        var lastError: Error?
+        var successResult: PaymentExecutionResult?
+        
+        // Execute with fallback loop
+        for method in orderedMethods {
+            attemptedMethods.append(method.methodId)
+            Logger.debug("Attempting payment via \(method.methodId)", context: "PaykitPaymentService")
+            
+            do {
+                let result = try client.executePayment(
+                    methodId: method.methodId,
+                    endpoint: method.endpoint,
+                    amountSats: amount,
+                    metadataJson: nil
+                )
+                
+                if result.success {
+                    successResult = result
+                    break
+                }
+                
+                // Check if error is retryable
+                let isRetryable = isRetryableError(result.error)
+                lastError = result.error.map { PaykitPaymentError.unknown($0) }
+                
+                if !isRetryable {
+                    Logger.warn("Non-retryable error on \(method.methodId): \(result.error ?? "unknown")", context: "PaykitPaymentService")
+                    break
+                }
+                
+                Logger.debug("Retryable error on \(method.methodId): \(result.error ?? "unknown"), trying next", context: "PaykitPaymentService")
+            } catch {
+                let isRetryable = isRetryableError(error.localizedDescription)
+                lastError = error
+                
+                if !isRetryable {
+                    Logger.warn("Non-retryable error on \(method.methodId): \(error)", context: "PaykitPaymentService")
+                    break
+                }
+                
+                Logger.debug("Retryable error on \(method.methodId): \(error), trying next", context: "PaykitPaymentService")
+            }
+        }
+        
+        guard let successResult = successResult else {
+            let summary = "All \(attemptedMethods.count) methods failed: \(attemptedMethods.joined(separator: ", "))"
+            Logger.warn(summary, context: "PaykitPaymentService")
+            throw lastError ?? PaykitPaymentError.unknown(summary)
+        }
+        
+        // Determine receipt type based on successful method
+        let receiptType: PaykitReceiptType = successResult.methodId.lowercased().contains("onchain") ||
+            successResult.methodId.lowercased().contains("bitcoin") ? .onchain : .lightning
         
         let receipt = PaykitReceipt(
             id: UUID().uuidString,
-            type: .lightning, // Assume Lightning for Paykit payments
+            type: receiptType,
             recipient: pubkey,
             amountSats: amount,
             feeSats: 0, // Fee not available from PaykitMobile
-            paymentHash: result.executionId,
+            paymentHash: successResult.executionId,
             preimage: nil,
-            txid: result.executionId,
+            txid: successResult.executionId,
             timestamp: Date(),
             status: .succeeded
         )
@@ -411,11 +464,89 @@ public final class PaykitPaymentService {
             receiptStore.store(receipt)
         }
         
+        // Log fallback attempts if any
+        if attemptedMethods.count > 1 {
+            let attemptSummary = attemptedMethods.joined(separator: " → ")
+            Logger.info("Paykit payment succeeded after \(attemptedMethods.count) attempts: \(attemptSummary)", context: "PaykitPaymentService")
+        } else {
+            Logger.info("Paykit URI payment succeeded: \(successResult.executionId)", context: "PaykitPaymentService")
+        }
+        
         return PaykitPaymentResult(
             success: true,
             receipt: receipt,
             error: nil
         )
+    }
+    
+    /// Build ordered payment methods for fallback execution.
+    private func buildOrderedPaymentMethods(
+        for pubkey: String,
+        methods: [PaymentMethod],
+        amountSats: UInt64
+    ) async -> [PaymentMethod] {
+        guard let client = manager.client else { return methods }
+        
+        do {
+            let preferences = SelectionPreferences(
+                strategy: .balanced,
+                excludedMethods: [],
+                maxFeeSats: nil,
+                maxConfirmationTimeSecs: nil
+            )
+            let result = try client.selectMethod(
+                supportedMethods: methods,
+                amountSats: amountSats,
+                preferences: preferences
+            )
+            
+            // Build ordered list: primary first, then fallbacks
+            var ordered: [PaymentMethod] = []
+            
+            if let primary = methods.first(where: { $0.methodId == result.primaryMethod }) {
+                ordered.append(primary)
+            }
+            
+            for fallbackId in result.fallbackMethods {
+                if let fallback = methods.first(where: { $0.methodId == fallbackId }),
+                   !ordered.contains(where: { $0.methodId == fallbackId }) {
+                    ordered.append(fallback)
+                }
+            }
+            
+            // Add any remaining methods not in the selection result
+            for method in methods where !ordered.contains(where: { $0.methodId == method.methodId }) {
+                ordered.append(method)
+            }
+            
+            return ordered
+        } catch {
+            Logger.warn("Method selection failed, using discovery order: \(error)", context: "PaykitPaymentService")
+            return methods
+        }
+    }
+    
+    /// Determine if an error is retryable (should try next fallback method).
+    ///
+    /// Non-retryable errors stop the fallback loop to avoid double-spend risks.
+    private func isRetryableError(_ errorMessage: String?) -> Bool {
+        guard let msg = errorMessage?.lowercased() else { return true }
+        
+        let nonRetryablePatterns = [
+            "already paid",
+            "duplicate payment",
+            "duplicate invoice",
+            "insufficient balance",
+            "insufficient funds",
+            "invoice expired",
+            "payment hash already exists",
+            "invoice already paid",
+            "amount too low",
+            "amount below minimum",
+            "permanently failed"
+        ]
+        
+        return !nonRetryablePatterns.contains { msg.contains($0) }
     }
     
     /// Extract pubkey from Paykit URI.
