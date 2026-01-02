@@ -102,24 +102,12 @@ struct AppScene: View {
                 ) { notification in
                     handleQuickAction(notification)
                 }
-                
-                // Listen for Paykit payment request notifications
-                NotificationCenter.default.addObserver(
-                    forName: .paykitRequestPayment,
-                    object: nil,
-                    queue: .main
-                ) { notification in
-                    handlePaykitRequestNotification(notification)
-                }
-                
-                // Listen for Paykit subscription proposal notifications
-                NotificationCenter.default.addObserver(
-                    forName: .paykitSubscriptionProposal,
-                    object: nil,
-                    queue: .main
-                ) { notification in
-                    handlePaykitSubscriptionNotification(notification)
-                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .paykitRequestPayment)) { notification in
+                handlePaykitRequestNotification(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .paykitSubscriptionProposal)) { notification in
+                handlePaykitSubscriptionNotification(notification)
             }
             .onReceive(BackupService.shared.backupFailurePublisher) { intervalMinutes in
                 handleBackupFailure(intervalMinutes: intervalMinutes)

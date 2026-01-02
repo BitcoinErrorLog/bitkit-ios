@@ -95,19 +95,29 @@ Handles Pubky directory operations.
 
 **Directory Schema:**
 
-The Pubky directory uses a hierarchical structure for storing Paykit-related data:
+The Pubky directory uses two namespaces with distinct purposes:
 
+### pubky.app namespace (user identity - per pubky-app-specs)
+```
+/pub/pubky.app/
+  ├── profile.json              # User profile (name, bio, image, links)
+  └── follows/                  # Follow relationships
+      └── {pubkey}              # Each followed user (contains created_at timestamp)
+```
+
+### paykit.app namespace (payment features only)
 ```
 /pub/paykit.app/v0/
-  ├── endpoints/{pubkey}/              # Payment endpoints
-  │   └── {methodId}.json            # Endpoint configuration (Lightning, onchain, etc.)
-  ├── subscriptions/
-  │   ├── requests/{recipientPubkey}/ # Payment requests
-  │   │   └── {requestId}.json      # Request metadata (amount, memo, expiry)
+  ├── endpoints/                # Payment endpoints
+  │   └── {methodId}.json       # Endpoint configuration (Lightning, onchain, etc.)
+  ├── requests/                 # Payment requests
+  │   └── {recipientPubkey}/    # Requests addressed to this recipient
+  │       └── {requestId}       # Request metadata (amount, memo, expiry)
+  ├── subscriptions/            # Subscription data
   │   └── proposals/{recipientPubkey}/ # Subscription proposals
-  │       └── {proposalId}.json      # Proposal metadata (amount, frequency, etc.)
-  └── profiles/{pubkey}/              # User profiles
-      └── profile.json               # Profile data (name, bio, avatar URL)
+  │       └── {proposalId}      # Proposal metadata (amount, frequency, etc.)
+  └── handoff/                  # Cross-device handoff data
+      └── {requestId}           # Handoff payload for cross-device auth
 ```
 
 **Directory Path Conventions:**

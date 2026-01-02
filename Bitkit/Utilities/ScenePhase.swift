@@ -129,6 +129,12 @@ private struct HandleLightningStateOnScenePhaseChange: ViewModifier {
     }
 
     func startNodeIfNeeded() async throws {
+        // Skip node startup in E2E test mode (for Paykit-focused tests)
+        if ProcessInfo.processInfo.environment["SKIP_WALLET_INIT"] == "true" {
+            Logger.debug("SKIP_WALLET_INIT set, skipping LN node startup...")
+            return
+        }
+        
         while wallet.nodeLifecycleState == .stopping {
             Logger.debug("Node is still stopping, waiting...")
             try await Task.sleep(nanoseconds: sleepTime)

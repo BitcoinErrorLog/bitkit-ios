@@ -79,6 +79,17 @@ struct PaykitPaymentRequestsView: View {
         .navigationBarHidden(true)
         .onAppear {
             viewModel.loadRequests()
+            
+            // Consume pending request ID from notification/deeplink
+            if let requestId = app.pendingPaykitRequestId {
+                app.pendingPaykitRequestId = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if let request = viewModel.requests.first(where: { $0.id == requestId }) {
+                        selectedRequest = request
+                        showingRequestDetail = true
+                    }
+                }
+            }
         }
         .refreshable {
             viewModel.loadRequests()
@@ -238,10 +249,15 @@ struct PaykitPaymentRequestsView: View {
     private func initiatePayment(for request: BitkitPaymentRequest) {
         Task {
             do {
+                // Use Paykit URI to trigger proper method discovery
+                let recipientPubkey = request.direction == .incoming
+                    ? request.fromPubkey  // Pay the requester
+                    : request.toPubkey    // Pay the recipient
+                
                 let result = try await PaykitPaymentService.shared.pay(
-                    to: request.methodId == "lightning" ? "lightning:\(request.id)" : request.toPubkey,
+                    to: "paykit:\(recipientPubkey)",
                     amountSats: UInt64(request.amountSats),
-                    peerPubkey: request.fromPubkey
+                    peerPubkey: recipientPubkey
                 )
                 
                 if result.success {

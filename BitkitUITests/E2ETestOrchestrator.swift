@@ -80,6 +80,68 @@ class E2ETestOrchestrator {
         return "e2e-test-device-\(E2ETestConfig.runId)"
     }
     
+    // MARK: - Scroll Helpers
+    
+    /// Scroll until element is visible and tap it
+    /// - Parameters:
+    ///   - element: The element to find and tap
+    ///   - scrollView: Optional scroll view to use (defaults to first scroll view)
+    ///   - maxScrolls: Maximum number of scroll attempts
+    /// - Returns: True if element was found and tapped
+    @discardableResult
+    func scrollAndTap(_ element: XCUIElement, in scrollView: XCUIElement? = nil, maxScrolls: Int = 5) -> Bool {
+        var scrollCount = 0
+        
+        // First check if already visible
+        if element.isHittable {
+            element.tap()
+            return true
+        }
+        
+        // Try scrolling to find it
+        let scrollTarget = scrollView ?? app.scrollViews.firstMatch
+        while scrollCount < maxScrolls {
+            if element.isHittable {
+                element.tap()
+                return true
+            }
+            scrollTarget.swipeUp()
+            scrollCount += 1
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        
+        // Final check after all scrolls
+        if element.isHittable {
+            element.tap()
+            return true
+        }
+        
+        return false
+    }
+    
+    /// Scroll until element is visible (without tapping)
+    /// - Parameters:
+    ///   - element: The element to find
+    ///   - scrollView: Optional scroll view to use
+    ///   - maxScrolls: Maximum number of scroll attempts
+    /// - Returns: True if element became visible
+    @discardableResult
+    func scrollUntilVisible(_ element: XCUIElement, in scrollView: XCUIElement? = nil, maxScrolls: Int = 5) -> Bool {
+        var scrollCount = 0
+        
+        if element.isHittable { return true }
+        
+        let scrollTarget = scrollView ?? app.scrollViews.firstMatch
+        while scrollCount < maxScrolls {
+            if element.isHittable { return true }
+            scrollTarget.swipeUp()
+            scrollCount += 1
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        
+        return element.isHittable
+    }
+    
     // MARK: - Navigation Helpers
     
     /// Navigate to Paykit settings section
@@ -90,10 +152,10 @@ class E2ETestOrchestrator {
             settingsTab.tap()
         }
         
-        // Look for Paykit cell in settings
+        // Look for Paykit cell in settings (may need to scroll)
         let paykitCell = app.cells["Paykit"]
         if paykitCell.waitForExistence(timeout: 5) {
-            paykitCell.tap()
+            scrollAndTap(paykitCell, in: app.tables.firstMatch)
         }
     }
     
@@ -104,7 +166,8 @@ class E2ETestOrchestrator {
         
         let editButton = app.buttons["Edit Profile"]
         if editButton.waitForExistence(timeout: 5) {
-            editButton.tap()
+            // Profile button may be below the fold, scroll if needed
+            scrollAndTap(editButton)
         }
     }
     
@@ -115,7 +178,8 @@ class E2ETestOrchestrator {
         
         let contactsButton = app.buttons["Contacts"]
         if contactsButton.waitForExistence(timeout: 5) {
-            contactsButton.tap()
+            // Contacts button may be below the fold, scroll if needed
+            scrollAndTap(contactsButton)
         }
     }
     

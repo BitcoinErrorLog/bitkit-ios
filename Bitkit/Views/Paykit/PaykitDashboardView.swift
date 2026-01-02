@@ -210,6 +210,9 @@ struct PaykitDashboardView: View {
             // Pubky-ring connection status
             pubkyRingConnectionCard
             
+            // Session status indicator (for E2E tests)
+            sessionStatusIndicator
+            
             // Session management
             QuickAccessCard(
                 title: "Sessions",
@@ -255,6 +258,34 @@ struct PaykitDashboardView: View {
             .background(Color.gray6)
             .cornerRadius(12)
         }
+    }
+    
+    private var sessionStatusIndicator: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(viewModel.sessionStatus.color)
+                .frame(width: 8, height: 8)
+            
+            Text(viewModel.sessionStatus.displayText)
+                .font(.caption)
+                .foregroundColor(viewModel.sessionStatus.color)
+                .accessibilityIdentifier(viewModel.sessionStatus.accessibilityId)
+            
+            Spacer()
+            
+            if viewModel.sessionStatus == .expired {
+                Button("Refresh Session") {
+                    showPubkyRingAuth = true
+                }
+                .font(.caption)
+                .foregroundColor(.brandAccent)
+                .accessibilityIdentifier("Refresh Session")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.gray6.opacity(0.5))
+        .cornerRadius(8)
     }
     
     private var recentActivitySection: some View {

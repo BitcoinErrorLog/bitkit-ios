@@ -99,8 +99,16 @@ enum Env {
 
     static var appStorageUrl: URL {
         // App group so files can be shared with extensions
-        guard let documentsDirectory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.bitkit") else {
-            fatalError("Could not find documents directory")
+        // Fall back to standard documents directory if app group is unavailable (e.g., simulator without capabilities)
+        let documentsDirectory: URL
+        if let groupContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.bitkit") {
+            documentsDirectory = groupContainer
+        } else {
+            // Fallback for simulator or when app group is unavailable
+            guard let fallback = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                fatalError("Could not find documents directory")
+            }
+            documentsDirectory = fallback
         }
 
         if isUnitTest {

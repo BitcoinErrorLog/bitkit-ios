@@ -392,11 +392,11 @@
 				966DE66E2C51210000A7B0EF /* XCRemoteSwiftPackageReference "ldk-swift" */,
 				96E493A22C942FD1000E8BC2 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
 				96E20CD22CB6D91A00C24149 /* XCRemoteSwiftPackageReference "CodeScanner" */,
-				96DEA0382DE8BBA1009932BF /* XCRemoteSwiftPackageReference "bitkit-core" */,
+				96DEA0382DE8BBA1009932BF /* XCLocalSwiftPackageReference "bitkit-core" */,
 				4AFCA36E2E05933800205CAE /* XCRemoteSwiftPackageReference "Zip" */,
 				968FE13E2DFB016B0053CD7F /* XCRemoteSwiftPackageReference "ldk-node" */,
 				4AAB08C82E1FE77600BA63DF /* XCRemoteSwiftPackageReference "lottie-ios" */,
-				18D65DFE2EB9649F00252335 /* XCRemoteSwiftPackageReference "vss-rust-client-ffi" */,
+				18D65DFE2EB9649F00252335 /* XCLocalSwiftPackageReference "vss-rust-client-ffi" */,
 			);
 			productRefGroup = 96FE1F622C2DE6AA006D0C8B /* Products */;
 			projectDirPath = "";
@@ -684,7 +684,11 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
 					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers",
 					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers",
 				);
@@ -706,7 +710,11 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = (
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
 					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator",
 					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator",
 				);
@@ -722,7 +730,8 @@
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers";
 				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/Bitkit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -927,13 +936,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		18D65DFE2EB9649F00252335 /* XCRemoteSwiftPackageReference "vss-rust-client-ffi" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/synonymdev/vss-rust-client-ffi";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
+		18D65DFE2EB9649F00252335 /* XCLocalSwiftPackageReference "vss-rust-client-ffi" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../vss-rust-client-ffi";
 		};
 		4AAB08C82E1FE77600BA63DF /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -983,13 +988,9 @@
 				kind = branch;
 			};
 		};
-		96DEA0382DE8BBA1009932BF /* XCRemoteSwiftPackageReference "bitkit-core" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/synonymdev/bitkit-core";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
+		96DEA0382DE8BBA1009932BF /* XCLocalSwiftPackageReference "bitkit-core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../bitkit-core";
 		};
 		96E20CD22CB6D91A00C24149 /* XCRemoteSwiftPackageReference "CodeScanner" */ = {
 			isa = XCRemoteSwiftPackageReference;

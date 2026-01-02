@@ -24,6 +24,19 @@ class DashboardViewModel: ObservableObject {
     @Published var pendingRequests: Int = 0
     @Published var publishedMethodsCount: Int = 0
     @Published var sessionCount: Int = 0
+    @Published private(set) var activeSession: PubkyRingSession?
+    
+    /// Whether the current session is active (not expired)
+    var isSessionActive: Bool {
+        guard let session = activeSession else { return false }
+        return !session.isExpired
+    }
+    
+    /// Session status for UI display
+    var sessionStatus: SessionStatus {
+        guard let session = activeSession else { return .noSession }
+        return session.isExpired ? .expired : .active
+    }
     
     private let receiptStorage: ReceiptStorage
     private let contactStorage: ContactStorage
@@ -64,8 +77,10 @@ class DashboardViewModel: ObservableObject {
         // Load Payment Requests count
         pendingRequests = paymentRequestStorage.pendingCount()
         
-        // Load Session count
-        sessionCount = PubkyRingBridge.shared.getAllSessions().count
+        // Load Session count and active session
+        let sessions = PubkyRingBridge.shared.getAllSessions()
+        sessionCount = sessions.count
+        activeSession = sessions.first(where: { !$0.isExpired }) ?? sessions.first
         
         isLoading = false
     }
@@ -80,6 +95,33 @@ class DashboardViewModel: ObservableObject {
         if hasPaymentMethods { completed += 1 }
         if hasPublishedMethods { completed += 1 }
         return (completed * 100) / 4
+    }
+}
+
+/// Session status for UI display
+enum SessionStatus {
+    case active
+    case expired
+    case noSession
+    
+    var displayText: String {
+        switch self {
+        case .active: return "Session Active"
+        case .expired: return "Session Expired"
+        case .noSession: return "No Session"
+        }
+    }
+    
+    var accessibilityId: String {
+        displayText
+    }
+    
+    var color: Color {
+        switch self {
+        case .active: return .green
+        case .expired: return .orange
+        case .noSession: return .gray
+        }
     }
 }
 

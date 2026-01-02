@@ -71,6 +71,19 @@ struct PaykitSubscriptionsView: View {
             viewModel.loadSubscriptions()
             viewModel.loadProposals()
             viewModel.loadPaymentHistory()
+            
+            // Consume pending subscription/proposal ID from notification/deeplink
+            if let subscriptionId = app.pendingPaykitSubscriptionId {
+                app.pendingPaykitSubscriptionId = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if let sub = viewModel.subscriptions.first(where: { $0.id == subscriptionId }) {
+                        selectedSubscription = sub
+                        showingDetail = true
+                    } else if viewModel.proposals.contains(where: { $0.id == subscriptionId }) {
+                        selectedTab = .proposals
+                    }
+                }
+            }
         }
         .refreshable {
             viewModel.loadSubscriptions()

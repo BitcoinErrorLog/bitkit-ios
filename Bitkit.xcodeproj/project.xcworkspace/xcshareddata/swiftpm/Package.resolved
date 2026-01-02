@@ -1,15 +1,6 @@
 {
-  "originHash" : "afebf53471e2eb2f8c45a9c3fbd45b779930aea0b8a7bf2fd223d03d490867a3",
+  "originHash" : "2f6c0bdf37ed15ca97f2c2ce31efe3acd45e07f67be520c2d1d84f9bc8c6bbdd",
   "pins" : [
-    {
-      "identity" : "bitkit-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/synonymdev/bitkit-core",
-      "state" : {
-        "branch" : "master",
-        "revision" : "539c48daa059bb9bb46bb00f5eb8e227021020d0"
-      }
-    },
     {
       "identity" : "codescanner",
       "kind" : "remoteSourceControl",
@@ -25,7 +16,7 @@
       "location" : "https://github.com/synonymdev/ldk-node",
       "state" : {
         "branch" : "main",
-        "revision" : "47bfd947e5dee1be7117179c2693d6c8bd1020bb"
+        "revision" : "612ad053cf086bb6d0d09720c0039102434177f8"
       }
     },
     {
@@ -71,15 +62,6 @@
       "state" : {
         "revision" : "b626d3002773b1a1304166643e7f118f724b2132",
         "version" : "1.0.4"
-      }
-    },
-    {
-      "identity" : "vss-rust-client-ffi",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/synonymdev/vss-rust-client-ffi",
-      "state" : {
-        "branch" : "master",
-        "revision" : "3d80852e6439c0b2034765e513e4620bb10b3f14"
       }
     },
     {

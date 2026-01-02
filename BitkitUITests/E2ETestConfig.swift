@@ -107,7 +107,7 @@ public struct E2ETestConfig {
     // MARK: - App Identifiers
     
     /// Pubky-ring bundle identifier
-    public static let pubkyRingBundleId = "app.pubky.ring"
+    public static let pubkyRingBundleId = "app.pubkyring"
     
     /// Bitkit bundle identifier
     public static let bitkitBundleId = "to.bitkit.app"

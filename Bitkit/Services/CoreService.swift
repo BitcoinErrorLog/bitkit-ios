@@ -76,9 +76,9 @@ class ActivityService {
         let outputs = details.outputs.map { output in
             BitkitCore.TxOutput(
                 scriptpubkey: output.scriptpubkey,
-                scriptpubkeyType: output.scriptpubkeyType,
+                scriptpubkeyType: output.scriptpubkeyType ?? "unknown",
                 scriptpubkeyAddress: output.scriptpubkeyAddress,
-                value: output.value,
+                value: UInt64(output.value),
                 n: output.n
             )
         }
@@ -910,7 +910,13 @@ class ActivityService {
 
     func getOnchainActivityByTxId(txid: String) async throws -> OnchainActivity? {
         try await ServiceQueue.background(.core) {
-            try BitkitCore.getActivityByTxId(txId: txid)
+            guard let activity = try BitkitCore.getActivityByTxId(txId: txid) else {
+                return nil
+            }
+            if case .onchain(let onchainActivity) = activity {
+                return onchainActivity
+            }
+            return nil
         }
     }
 

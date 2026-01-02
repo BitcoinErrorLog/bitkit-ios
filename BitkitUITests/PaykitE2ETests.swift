@@ -26,7 +26,7 @@ final class PaykitE2ETests: XCTestCase {
         // In UI tests, we can't use UIApplication.shared directly
         // Instead, we check if the app responds to the URL scheme by attempting to open it
         // and checking if our app loses focus
-        let pubkyRingApp = XCUIApplication(bundleIdentifier: "app.pubky.ring")
+        let pubkyRingApp = XCUIApplication(bundleIdentifier: E2ETestConfig.pubkyRingBundleId)
         return pubkyRingApp.exists || checkPubkyRingViaUrlScheme()
     }
     
@@ -60,8 +60,7 @@ final class PaykitE2ETests: XCTestCase {
         app.launchArguments = ["--uitesting", "--e2e"]
         app.launchEnvironment = [
             "E2E_BUILD": "true",
-            "ELECTRUM_URL": "localhost:50001",
-            "RGS_URL": "localhost:8080",
+            "SKIP_WALLET_INIT": "true",  // Skip LN node startup for Paykit-focused tests
             "E2E_TEST_PUBKEY": E2ETestConfig.testPubkey,
             "E2E_RUN_ID": E2ETestConfig.runId
         ]
@@ -73,13 +72,17 @@ final class PaykitE2ETests: XCTestCase {
         // Log configuration
         print(E2ETestConfig.configurationDescription)
         
-        // Wait for app to be ready
+        // Wait for app to be ready - check for tab bar instead of Dashboard text
+        // since wallet init is skipped
         let timeout: TimeInterval = 30
-        let walletReady = app.staticTexts["Dashboard"].waitForExistence(timeout: timeout)
+        let settingsTab = app.tabBars.buttons["Settings"]
+        let appReady = settingsTab.waitForExistence(timeout: timeout)
         
-        if !walletReady {
+        if !appReady {
             // May need to create or restore wallet first
             setupTestWallet()
+            // Wait again for Settings tab after wallet setup
+            XCTAssertTrue(settingsTab.waitForExistence(timeout: timeout), "App should show tab bar after wallet setup")
         }
     }
     

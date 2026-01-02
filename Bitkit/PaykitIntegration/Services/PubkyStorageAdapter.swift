@@ -225,20 +225,37 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
 
 /// Adapter for authenticated Pubky storage operations
 /// Makes HTTP requests to Pubky homeservers with session authentication
+/// Cookie format: {ownerPubkey}={sessionSecret}
+/// When using central homeserver, also adds pubky-host: {ownerPubkey} header
 public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback {
     
-    private let sessionId: String
+    private let sessionSecret: String
+    private let ownerPubkey: String
     private let homeserverBaseURL: String?
     private let session: URLSession
     
-    public init(sessionId: String, homeserverBaseURL: String? = nil) {
-        self.sessionId = sessionId
+    public init(sessionSecret: String, ownerPubkey: String, homeserverBaseURL: String? = nil) {
+        self.sessionSecret = sessionSecret
+        self.ownerPubkey = ownerPubkey
         self.homeserverBaseURL = homeserverBaseURL
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
         config.httpCookieStorage = HTTPCookieStorage.shared
         self.session = URLSession(configuration: config)
+    }
+    
+    /// Build the session cookie in Pubky format: {ownerPubkey}={sessionSecret}
+    private func buildSessionCookie() -> String {
+        // The sessionSecret may come as "{pubkey}:{actualSecret}" format from Pubky Ring,
+        // so we extract just the actualSecret portion after the colon.
+        let actualSecret = sessionSecret.contains(":") ? String(sessionSecret.split(separator: ":").last ?? "") : sessionSecret
+        return "\(ownerPubkey)=\(actualSecret)"
+    }
+    
+    /// Check if we need to add the pubky-host header (when using central homeserver URL)
+    private var needsPubkyHostHeader: Bool {
+        return homeserverBaseURL != nil
     }
     
     public func put(path: String, content: String) -> StorageOperationResult {
@@ -253,7 +270,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("session=\(sessionId)", forHTTPHeaderField: "Cookie")
+        request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
+        if needsPubkyHostHeader {
+            request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        }
         request.httpBody = content.data(using: .utf8)
         
         var result: StorageOperationResult?
@@ -295,7 +315,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("session=\(sessionId)", forHTTPHeaderField: "Cookie")
+        request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
+        if needsPubkyHostHeader {
+            request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        }
         
         var result: StorageGetResult?
         let semaphore = DispatchSemaphore(value: 0)
@@ -340,7 +363,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue("session=\(sessionId)", forHTTPHeaderField: "Cookie")
+        request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
+        if needsPubkyHostHeader {
+            request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        }
         
         var result: StorageOperationResult?
         let semaphore = DispatchSemaphore(value: 0)
@@ -382,7 +408,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("session=\(sessionId)", forHTTPHeaderField: "Cookie")
+        request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
+        if needsPubkyHostHeader {
+            request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        }
         
         var result: StorageListResult?
         let semaphore = DispatchSemaphore(value: 0)
