@@ -212,36 +212,53 @@ public final class PaykitPollingService {
             return []
         }
         
-        // Discover pending payment requests from directory
-        let paymentRequests = try await directoryService.discoverPendingRequests(for: ownerPubkey)
-        for request in paymentRequests {
-            // Filter out requests we've already seen
-            if !seenRequestIds.contains(request.requestId) {
-                seenRequestIds.insert(request.requestId)
-                newRequests.append(request)
+        // Get list of known peers (follows) to poll
+        let knownPeers: [String]
+        do {
+            knownPeers = try await directoryService.fetchFollows()
+        } catch {
+            Logger.error("PaykitPollingService: Failed to fetch follows for peer polling: \(error)", context: "PaykitPollingService")
+            knownPeers = []
+        }
+        
+        // Poll each peer's storage for requests/proposals addressed to us
+        for peerPubkey in knownPeers {
+            // Discover payment requests from peer's storage
+            do {
+                let paymentRequests = try await directoryService.discoverPendingRequestsFromPeer(peerPubkey: peerPubkey, myPubkey: ownerPubkey)
+                for request in paymentRequests {
+                    if !seenRequestIds.contains(request.requestId) {
+                        seenRequestIds.insert(request.requestId)
+                        newRequests.append(request)
+                    }
+                }
+            } catch {
+                Logger.debug("PaykitPollingService: Failed to discover requests from peer \(peerPubkey.prefix(12)): \(error)", context: "PaykitPollingService")
+            }
+            
+            // Discover subscription proposals from peer's storage
+            do {
+                let proposals = try await directoryService.discoverSubscriptionProposalsFromPeer(peerPubkey: peerPubkey, myPubkey: ownerPubkey)
+                for proposal in proposals {
+                    let request = DiscoveredRequest(
+                        requestId: proposal.subscriptionId,
+                        type: .subscriptionProposal,
+                        fromPubkey: proposal.providerPubkey,
+                        amountSats: proposal.amountSats,
+                        description: proposal.description,
+                        createdAt: proposal.createdAt
+                    )
+                    if !seenRequestIds.contains(request.requestId) {
+                        seenRequestIds.insert(request.requestId)
+                        newRequests.append(request)
+                    }
+                }
+            } catch {
+                Logger.debug("PaykitPollingService: Failed to discover proposals from peer \(peerPubkey.prefix(12)): \(error)", context: "PaykitPollingService")
             }
         }
         
-        Logger.debug("PaykitPollingService: Found \(paymentRequests.count) payment requests, \(newRequests.count) new", context: "PaykitPollingService")
-        
-        // Discover subscription proposals
-        let proposals = try await directoryService.discoverSubscriptionProposals(for: ownerPubkey)
-        for proposal in proposals {
-            let request = DiscoveredRequest(
-                requestId: proposal.subscriptionId,
-                type: .subscriptionProposal,
-                fromPubkey: proposal.providerPubkey,
-                amountSats: proposal.amountSats,
-                description: proposal.description,
-                createdAt: proposal.createdAt
-            )
-            if !seenRequestIds.contains(request.requestId) {
-                seenRequestIds.insert(request.requestId)
-                newRequests.append(request)
-            }
-        }
-        
-        Logger.debug("PaykitPollingService: Found \(proposals.count) subscription proposals", context: "PaykitPollingService")
+        Logger.debug("PaykitPollingService: Discovered \(newRequests.count) new requests from \(knownPeers.count) peers", context: "PaykitPollingService")
         
         return newRequests
     }
@@ -359,15 +376,15 @@ public final class PaykitPollingService {
         }
     }
     
+    /// Cleanup processed request.
+    ///
+    /// NOTE: In the v0 sender-storage model, requests are stored on the sender's homeserver.
+    /// Recipients cannot delete requests from sender storage. Deduplication is handled locally
+    /// via `seenRequestIds` and `PaymentRequestStorage`.
+    ///
+    /// This method is intentionally a no-op - we only log for diagnostics.
     private func cleanupProcessedRequest(_ request: DiscoveredRequest) async {
-        guard let ownerPubkey = PaykitManager.shared.ownerPubkey else { return }
-        
-        do {
-            try await directoryService.removePaymentRequest(requestId: request.requestId, recipientPubkey: ownerPubkey)
-            Logger.info("PaykitPollingService: Cleaned up processed request \(request.requestId) from directory", context: "PaykitPollingService")
-        } catch {
-            Logger.warn("PaykitPollingService: Failed to cleanup request \(request.requestId): \(error.localizedDescription)", context: "PaykitPollingService")
-        }
+        Logger.debug("PaykitPollingService: Request \(request.requestId) processed (no remote delete in sender-storage model)", context: "PaykitPollingService")
     }
     
     // MARK: - Payment Execution

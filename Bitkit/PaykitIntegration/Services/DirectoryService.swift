@@ -77,7 +77,7 @@ public final class DirectoryService {
     
     /// Configure authenticated transport with session
     /// - Parameters:
-    ///   - sessionId: The session ID from Pubky-ring
+    ///   - sessionId: The session secret from Pubky-ring
     ///   - ownerPubkey: The owner's public key
     ///   - homeserverBaseURL: The homeserver base URL (defaults to resolved PubkyConfig URL)
     public func configureAuthenticatedTransport(sessionId: String, ownerPubkey: String, homeserverBaseURL: String? = nil) {
@@ -85,7 +85,8 @@ public final class DirectoryService {
         
         // Store adapter for write operations
         authenticatedAdapter = PubkyAuthenticatedStorageAdapter(
-            sessionId: sessionId,
+            sessionSecret: sessionId,
+            ownerPubkey: ownerPubkey,
             homeserverBaseURL: self.homeserverBaseURL
         )
         
@@ -102,11 +103,13 @@ public final class DirectoryService {
     
     /// Configure transport using a Pubky session from Pubky-ring
     public func configureWithPubkySession(_ session: PubkyRingSession) {
-        homeserverBaseURL = PubkyConfig.homeserverBaseURL()
+        // Use session's homeserver URL if provided, otherwise fall back to default
+        homeserverBaseURL = session.homeserverURL ?? PubkyConfig.homeserverBaseURL()
         
         // Store authenticated adapter for write operations (uses session cookie)
         authenticatedAdapter = PubkyAuthenticatedStorageAdapter(
-            sessionId: session.sessionSecret,
+            sessionSecret: session.sessionSecret,
+            ownerPubkey: session.pubkey,
             homeserverBaseURL: homeserverBaseURL
         )
         
@@ -120,7 +123,7 @@ public final class DirectoryService {
         let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
         
-        Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey)", context: "DirectoryService")
+        Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey) on \(homeserverBaseURL ?? "default")", context: "DirectoryService")
     }
     
     /// Discover noise endpoints for a recipient
@@ -416,31 +419,61 @@ public final class DirectoryService {
     
     // MARK: - Payment Request Operations
     
-    private static let paykitPathPrefix = "/pub/paykit.app/v0/"
-    
     /// Fetch a payment request from a sender's Pubky storage.
     ///
-    /// Retrieves from: pubky://{senderPubkey}/pub/paykit.app/v0/requests/{recipientPubkey}/{requestId}
+    /// Retrieves and decrypts from: `pubky://{senderPubkey}/pub/paykit.app/v0/requests/{scope}/{requestId}`
+    ///
+    /// SECURITY: Decrypts using our Noise secret key and canonical AAD.
     ///
     /// - Parameters:
     ///   - requestId: The payment request ID
     ///   - senderPubkey: The pubkey of the request sender
-    ///   - recipientPubkey: The recipient's pubkey (our pubkey)
+    ///   - recipientPubkey: The recipient's pubkey (our pubkey, used for scope computation)
     /// - Returns: The payment request if found, nil otherwise
     public func fetchPaymentRequest(requestId: String, senderPubkey: String, recipientPubkey: String? = nil) async throws -> BitkitPaymentRequest? {
         let recipient = recipientPubkey ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? ""
-        let path = "\(Self.paykitPathPrefix)requests/\(recipient)/\(requestId)"
+        
+        // Use canonical v0 path (scope-based)
+        guard let path = try? PaykitV0Protocol.paymentRequestPath(recipientPubkeyZ32: recipient, requestId: requestId) else {
+            Logger.error("Failed to compute canonical path for payment request", context: "DirectoryService")
+            return nil
+        }
         let pubkyUri = "pubky://\(senderPubkey)\(path)"
         
         Logger.debug("Fetching payment request from: \(pubkyUri)", context: "DirectoryService")
         
         do {
-            guard let data = try await PubkySDKService.shared.getData(pubkyUri) else {
+            guard let envelopeData = try await PubkySDKService.shared.getData(pubkyUri) else {
                 Logger.debug("Payment request \(requestId) not found at \(senderPubkey.prefix(12))...", context: "DirectoryService")
                 return nil
             }
             
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let envelopeJson = String(data: envelopeData, encoding: .utf8) else {
+                return nil
+            }
+            
+            // Check if this is an encrypted sealed blob
+            guard isSealedBlob(json: envelopeJson) else {
+                Logger.error("Payment request is not encrypted (sealed blob required)", context: "DirectoryService")
+                return nil
+            }
+            
+            // Get our Noise secret key for decryption
+            guard let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair(),
+                  let myNoiseSk = Data(hex: noiseKeypair.secretKey) else {
+                Logger.error("No Noise keypair available for decryption", context: "DirectoryService")
+                return nil
+            }
+            
+            let aad = try PaykitV0Protocol.paymentRequestAad(recipientPubkeyZ32: recipient, requestId: requestId)
+            
+            let plaintextData = try sealedBlobDecrypt(
+                recipientSk: myNoiseSk,
+                envelopeJson: envelopeJson,
+                aad: aad
+            )
+            
+            guard let json = try JSONSerialization.jsonObject(with: plaintextData) as? [String: Any] else {
                 return nil
             }
             
@@ -466,17 +499,19 @@ public final class DirectoryService {
         }
     }
     
-    /// Remove a payment request from directory after processing.
+    /// Remove a payment request from OUR storage.
+    ///
+    /// NOTE: In the sender-storage model, only the sender can delete their stored requests.
     ///
     /// - Parameters:
     ///   - requestId: The payment request ID to remove
-    ///   - recipientPubkey: The recipient's pubkey (where the request is stored)
+    ///   - recipientPubkey: The recipient pubkey (used for scope computation)
     public func removePaymentRequest(requestId: String, recipientPubkey: String) async throws {
         guard let adapter = authenticatedAdapter else {
             throw DirectoryError.notConfigured
         }
         
-        let path = "\(Self.paykitPathPrefix)requests/\(recipientPubkey)/\(requestId)"
+        let path = try PaykitV0Protocol.paymentRequestPath(recipientPubkeyZ32: recipientPubkey, requestId: requestId)
         let pubkyStorage = PubkyStorageAdapter.shared
         
         try await pubkyStorage.deleteFile(path: path, adapter: adapter)
@@ -485,19 +520,56 @@ public final class DirectoryService {
     
     // MARK: - Pending Requests Discovery
     
-    /// Discover pending payment requests from the Pubky directory
+    /// Discover pending payment requests from a peer's storage.
+    ///
+    /// In the v0 sender-storage model, recipients poll known peers and list
+    /// their `.../{my_scope}/` directory to discover pending requests.
+    ///
+    /// - Parameters:
+    ///   - peerPubkey: The pubkey of the peer whose storage to poll
+    ///   - myPubkey: Our pubkey (used for scope computation)
+    /// - Returns: List of discovered requests addressed to us
+    public func discoverPendingRequestsFromPeer(peerPubkey: String, myPubkey: String) async throws -> [DiscoveredRequest] {
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        let myScope = try PaykitV0Protocol.recipientScope(myPubkey)
+        let requestsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.requestsSubpath)/\(myScope)/"
+        
+        do {
+            let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: peerPubkey)
+            
+            var requests: [DiscoveredRequest] = []
+            for requestId in requestFiles {
+                if let request = await decryptAndParsePaymentRequest(requestId: requestId, path: requestsPath + requestId, adapter: unauthAdapter, peerPubkey: peerPubkey, myPubkey: myPubkey) {
+                    requests.append(request)
+                }
+            }
+            return requests
+        } catch {
+            Logger.error("Failed to discover requests from \(peerPubkey): \(error)", context: "DirectoryService")
+            return []
+        }
+    }
+    
+    /// Discover pending payment requests from the Pubky directory.
+    ///
+    /// DEPRECATED: This method lists our own storage which is the wrong model.
+    /// Use `discoverPendingRequestsFromPeer` to poll each known contact's storage.
+    @available(*, deprecated, message: "Use discoverPendingRequestsFromPeer to poll known contacts")
     public func discoverPendingRequests(for ownerPubkey: String) async throws -> [DiscoveredRequest] {
         let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
         let pubkyStorage = PubkyStorageAdapter.shared
         
-        let requestsPath = "\(Self.paykitPathPrefix)requests/\(ownerPubkey)/"
+        let scope = try PaykitV0Protocol.recipientScope(ownerPubkey)
+        let requestsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.requestsSubpath)/\(scope)/"
         
         do {
             let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: ownerPubkey)
             
             var requests: [DiscoveredRequest] = []
             for requestId in requestFiles {
-                if let request = await parsePaymentRequest(requestId: requestId, path: requestsPath + requestId, adapter: unauthAdapter, ownerPubkey: ownerPubkey) {
+                if let request = await decryptAndParsePaymentRequest(requestId: requestId, path: requestsPath + requestId, adapter: unauthAdapter, peerPubkey: ownerPubkey, myPubkey: ownerPubkey) {
                     requests.append(request)
                 }
             }
@@ -508,19 +580,56 @@ public final class DirectoryService {
         }
     }
     
-    /// Discover subscription proposals from the Pubky directory
+    /// Discover subscription proposals from a peer's storage.
+    ///
+    /// In the v0 provider-storage model, subscribers poll known providers and list
+    /// their `.../{my_scope}/` directory to discover pending proposals.
+    ///
+    /// - Parameters:
+    ///   - peerPubkey: The pubkey of the peer (provider) whose storage to poll
+    ///   - myPubkey: Our pubkey (used for scope computation)
+    /// - Returns: List of discovered proposals addressed to us
+    public func discoverSubscriptionProposalsFromPeer(peerPubkey: String, myPubkey: String) async throws -> [DiscoveredSubscriptionProposal] {
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        let myScope = try PaykitV0Protocol.subscriberScope(myPubkey)
+        let proposalsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.subscriptionProposalsSubpath)/\(myScope)/"
+        
+        do {
+            let proposalFiles = try await pubkyStorage.listDirectory(path: proposalsPath, adapter: unauthAdapter, ownerPubkey: peerPubkey)
+            
+            var proposals: [DiscoveredSubscriptionProposal] = []
+            for proposalId in proposalFiles {
+                if let proposal = await decryptAndParseSubscriptionProposal(proposalId: proposalId, path: proposalsPath + proposalId, adapter: unauthAdapter, peerPubkey: peerPubkey, myPubkey: myPubkey) {
+                    proposals.append(proposal)
+                }
+            }
+            return proposals
+        } catch {
+            Logger.error("Failed to discover proposals from \(peerPubkey): \(error)", context: "DirectoryService")
+            return []
+        }
+    }
+    
+    /// Discover subscription proposals from the Pubky directory.
+    ///
+    /// DEPRECATED: This method uses the wrong storage model.
+    /// Use `discoverSubscriptionProposalsFromPeer` to poll each known provider's storage.
+    @available(*, deprecated, message: "Use discoverSubscriptionProposalsFromPeer to poll known providers")
     public func discoverSubscriptionProposals(for ownerPubkey: String) async throws -> [DiscoveredSubscriptionProposal] {
         let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
         let pubkyStorage = PubkyStorageAdapter.shared
         
-        let proposalsPath = "\(Self.paykitPathPrefix)subscriptions/proposals/\(ownerPubkey)/"
+        let scope = try PaykitV0Protocol.subscriberScope(ownerPubkey)
+        let proposalsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.subscriptionProposalsSubpath)/\(scope)/"
         
         do {
             let proposalFiles = try await pubkyStorage.listDirectory(path: proposalsPath, adapter: unauthAdapter, ownerPubkey: ownerPubkey)
             
             var proposals: [DiscoveredSubscriptionProposal] = []
             for proposalId in proposalFiles {
-                if let proposal = await parseSubscriptionProposal(proposalId: proposalId, path: proposalsPath + proposalId, adapter: unauthAdapter, ownerPubkey: ownerPubkey) {
+                if let proposal = await decryptAndParseSubscriptionProposal(proposalId: proposalId, path: proposalsPath + proposalId, adapter: unauthAdapter, peerPubkey: ownerPubkey, myPubkey: ownerPubkey) {
                     proposals.append(proposal)
                 }
             }
@@ -531,15 +640,37 @@ public final class DirectoryService {
         }
     }
     
-    private func parsePaymentRequest(requestId: String, path: String, adapter: PubkyUnauthenticatedStorageAdapter, ownerPubkey: String) async -> DiscoveredRequest? {
+    /// Decrypt and parse a payment request from an encrypted sealed blob.
+    private func decryptAndParsePaymentRequest(requestId: String, path: String, adapter: PubkyUnauthenticatedStorageAdapter, peerPubkey: String, myPubkey: String) async -> DiscoveredRequest? {
         let pubkyStorage = PubkyStorageAdapter.shared
         
         do {
-            guard let data = try await pubkyStorage.readFile(path: path, adapter: adapter, ownerPubkey: ownerPubkey) else {
+            guard let data = try await pubkyStorage.readFile(path: path, adapter: adapter, ownerPubkey: peerPubkey) else {
                 return nil
             }
             
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let envelopeJson = String(data: data, encoding: .utf8),
+                  isSealedBlob(json: envelopeJson) else {
+                Logger.error("Payment request \(requestId) is not encrypted (sealed blob required)", context: "DirectoryService")
+                return nil
+            }
+            
+            // Get our Noise secret key for decryption
+            guard let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair(),
+                  let myNoiseSk = Data(hex: noiseKeypair.secretKey) else {
+                Logger.error("No Noise keypair available for decryption", context: "DirectoryService")
+                return nil
+            }
+            
+            let aad = try PaykitV0Protocol.paymentRequestAad(recipientPubkeyZ32: myPubkey, requestId: requestId)
+            
+            let plaintextData = try sealedBlobDecrypt(
+                recipientSk: myNoiseSk,
+                envelopeJson: envelopeJson,
+                aad: aad
+            )
+            
+            guard let json = try JSONSerialization.jsonObject(with: plaintextData) as? [String: Any] else {
                 return nil
             }
             
@@ -552,20 +683,52 @@ public final class DirectoryService {
                 createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)))
             )
         } catch {
-            Logger.error("Failed to parse payment request \(requestId): \(error)", context: "DirectoryService")
+            Logger.error("Failed to decrypt/parse payment request \(requestId): \(error)", context: "DirectoryService")
             return nil
         }
     }
     
-    private func parseSubscriptionProposal(proposalId: String, path: String, adapter: PubkyUnauthenticatedStorageAdapter, ownerPubkey: String) async -> DiscoveredSubscriptionProposal? {
+    /// Decrypt and parse a subscription proposal from an encrypted sealed blob.
+    ///
+    /// SECURITY: Only encrypted Sealed Blob v1 format is accepted.
+    /// Uses canonical AAD format: `paykit:v0:subscription_proposal:{path}:{proposalId}`
+    private func decryptAndParseSubscriptionProposal(proposalId: String, path: String, adapter: PubkyUnauthenticatedStorageAdapter, peerPubkey: String, myPubkey: String) async -> DiscoveredSubscriptionProposal? {
         let pubkyStorage = PubkyStorageAdapter.shared
         
         do {
-            guard let data = try await pubkyStorage.readFile(path: path, adapter: adapter, ownerPubkey: ownerPubkey) else {
+            guard let data = try await pubkyStorage.readFile(path: path, adapter: adapter, ownerPubkey: peerPubkey) else {
                 return nil
             }
             
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let envelopeString = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            
+            // SECURITY: Only accept encrypted sealed blobs
+            guard isSealedBlob(json: envelopeString) else {
+                Logger.error("Subscription proposal \(proposalId) is not encrypted (sealed blob required)", context: "DirectoryService")
+                return nil
+            }
+            
+            // Get our noise secret key for decryption
+            guard let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair(),
+                  let myNoiseSk = Data(hex: noiseKeypair.secretKey) else {
+                Logger.error("No Noise keypair available for decryption", context: "DirectoryService")
+                return nil
+            }
+            
+            // Build canonical AAD
+            let aad = try PaykitV0Protocol.subscriptionProposalAad(subscriberPubkeyZ32: myPubkey, proposalId: proposalId)
+            
+            // Decrypt the sealed blob
+            let plaintextData = try sealedBlobDecrypt(
+                recipientSk: myNoiseSk,
+                envelopeJson: envelopeString,
+                aad: aad
+            )
+            
+            guard let json = try JSONSerialization.jsonObject(with: plaintextData) as? [String: Any] else {
+                Logger.error("Failed to parse decrypted proposal JSON", context: "DirectoryService")
                 return nil
             }
             
@@ -578,7 +741,7 @@ public final class DirectoryService {
                 createdAt: Date(timeIntervalSince1970: TimeInterval((json["created_at"] as? Int64) ?? Int64(Date().timeIntervalSince1970)))
             )
         } catch {
-            Logger.error("Failed to parse subscription proposal \(proposalId): \(error)", context: "DirectoryService")
+            Logger.error("Failed to parse/decrypt subscription proposal \(proposalId): \(error)", context: "DirectoryService")
             return nil
         }
     }
