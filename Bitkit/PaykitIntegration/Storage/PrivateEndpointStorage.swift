@@ -21,8 +21,8 @@ public class PrivateEndpointStorage {
         "paykit.private_endpoints.\(identityName)"
     }
     
-    public init(identityName: String = "default", keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
-        self.identityName = identityName
+    public init(identityName: String? = nil, keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
+        self.identityName = identityName ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? "default"
         self.keychain = keychain
     }
     
