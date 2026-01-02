@@ -255,46 +255,10 @@ final class PaykitE2ETests: XCTestCase {
     }
     
     /// Test: Manual session entry fallback
-    /// Verifies that users can manually enter session data if other methods fail
+    /// DEPRECATED: Manual plaintext session entry is no longer supported.
+    /// Use requestSecureHandoffSession() or cross-device relay flow instead.
     func testManualSessionEntry() throws {
-        navigateToPaykitSettings()
-        
-        // Tap connect and select manual entry option
-        let connectButton = app.buttons["Connect Pubky-ring"]
-        if connectButton.waitForExistence(timeout: 5) {
-            connectButton.tap()
-        }
-        
-        let manualOption = app.buttons["Manual Entry"]
-        if manualOption.waitForExistence(timeout: 5) {
-            manualOption.tap()
-            
-            // Verify manual entry fields are available
-            let pubkeyField = app.textFields["Pubkey"]
-            let sessionSecretField = app.secureTextFields["Session Secret"]
-            
-            XCTAssertTrue(pubkeyField.waitForExistence(timeout: 5), "Pubkey field should be available")
-            
-            // Enter test data
-            pubkeyField.tap()
-            pubkeyField.typeText("testpubkey1234567890abcdefghijklmnopqrstuvwxyz12345678")
-            
-            if sessionSecretField.exists {
-                sessionSecretField.tap()
-                sessionSecretField.typeText("testsecret123")
-            }
-            
-            // Submit
-            let submitButton = app.buttons["Connect"]
-            if submitButton.exists {
-                submitButton.tap()
-                
-                // May succeed or fail depending on validity - just verify UI handles it
-                let result = app.staticTexts["Session Active"].waitForExistence(timeout: 5) ||
-                             app.staticTexts["Invalid session"].waitForExistence(timeout: 5)
-                XCTAssertTrue(result, "Should show either success or error message")
-            }
-        }
+        throw XCTSkip("Manual session entry is deprecated - use secure handoff or cross-device relay instead")
     }
     
     // MARK: - Payment Request Tests

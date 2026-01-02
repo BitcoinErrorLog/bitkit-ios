@@ -392,55 +392,26 @@ public final class PaykitPaymentService {
         let orderedMethods = await buildOrderedPaymentMethods(for: pubkey, methods: methods, amountSats: amountSats ?? 0)
         
         let amount = amountSats ?? 0
-        var attemptedMethods: [String] = []
-        var lastError: Error?
-        var successResult: PaymentExecutionResult?
         
-        // Execute with fallback loop
-        for method in orderedMethods {
-            attemptedMethods.append(method.methodId)
-            Logger.debug("Attempting payment via \(method.methodId)", context: "PaykitPaymentService")
-            
-            do {
-                let result = try client.executePayment(
-                    methodId: method.methodId,
-                    endpoint: method.endpoint,
-                    amountSats: amount,
-                    metadataJson: nil
-                )
-                
-                if result.success {
-                    successResult = result
-                    break
-                }
-                
-                // Check if error is retryable
-                let isRetryable = isRetryableError(result.error)
-                lastError = result.error.map { PaykitPaymentError.unknown($0) }
-                
-                if !isRetryable {
-                    Logger.warn("Non-retryable error on \(method.methodId): \(result.error ?? "unknown")", context: "PaykitPaymentService")
-                    break
-                }
-                
-                Logger.debug("Retryable error on \(method.methodId): \(result.error ?? "unknown"), trying next", context: "PaykitPaymentService")
-            } catch {
-                let isRetryable = isRetryableError(error.localizedDescription)
-                lastError = error
-                
-                if !isRetryable {
-                    Logger.warn("Non-retryable error on \(method.methodId): \(error)", context: "PaykitPaymentService")
-                    break
-                }
-                
-                Logger.debug("Retryable error on \(method.methodId): \(error), trying next", context: "PaykitPaymentService")
-            }
+        let candidates = orderedMethods.map { method in
+            PaymentCandidate(methodId: method.methodId, endpoint: method.endpoint)
         }
         
-        guard let successResult = successResult else {
-            let summary = "All \(attemptedMethods.count) methods failed: \(attemptedMethods.joined(separator: ", "))"
-            Logger.warn(summary, context: "PaykitPaymentService")
-            throw lastError ?? PaykitPaymentError.unknown(summary)
+        let execution = try client.executeWithFallbacks(
+            candidates: candidates,
+            amountSats: amount,
+            metadataJson: nil
+        )
+        
+        let attemptedMethods = execution.attempts.map { $0.methodId }
+        
+        guard execution.success,
+              let successResult = execution.successfulExecution,
+              successResult.success
+        else {
+            Logger.warn(execution.summary, context: "PaykitPaymentService")
+            let errorMsg = execution.attempts.last?.error ?? execution.summary
+            throw PaykitPaymentError.unknown(errorMsg)
         }
         
         // Determine receipt type based on successful method

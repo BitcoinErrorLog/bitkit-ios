@@ -59,41 +59,29 @@ final class PubkyRingBridgeTests: XCTestCase {
     
     // MARK: - Manual Session Import Tests
     
-    func testImportSessionCreatesValidSession() {
+    func testImportSessionThrows() {
         let pubkey = "z6mktest1234567890"
         let secret = "test_secret_12345"
         
-        let session = bridge.importSession(pubkey: pubkey, sessionSecret: secret)
-        
-        XCTAssertEqual(session.pubkey, pubkey)
-        XCTAssertEqual(session.sessionSecret, secret)
-        XCTAssertTrue(session.capabilities.isEmpty)
+        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret))
     }
     
-    func testImportedSessionIsCached() {
+    func testImportSessionDoesNotCacheSession() {
         let pubkey = "z6mktest1234567890"
         let secret = "test_secret_12345"
         
-        let imported = bridge.importSession(pubkey: pubkey, sessionSecret: secret)
         let cached = bridge.getCachedSession(for: pubkey)
         
-        XCTAssertNotNil(cached)
-        XCTAssertEqual(cached?.pubkey, imported.pubkey)
-        XCTAssertEqual(cached?.sessionSecret, imported.sessionSecret)
+        XCTAssertNil(cached)
+        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret))
     }
     
-    func testImportSessionWithCapabilities() {
+    func testImportSessionWithCapabilitiesThrows() {
         let pubkey = "z6mktest1234567890"
         let secret = "test_secret_12345"
         let capabilities = ["read", "write", "admin"]
         
-        let session = bridge.importSession(pubkey: pubkey, sessionSecret: secret, capabilities: capabilities)
-        
-        XCTAssertEqual(session.capabilities, capabilities)
-        XCTAssertTrue(session.hasCapability("read"))
-        XCTAssertTrue(session.hasCapability("write"))
-        XCTAssertTrue(session.hasCapability("admin"))
-        XCTAssertFalse(session.hasCapability("delete"))
+        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret, capabilities: capabilities))
     }
     
     // MARK: - Authentication Status Tests
@@ -167,9 +155,21 @@ final class PubkyRingBridgeTests: XCTestCase {
     // MARK: - Cache Management Tests
     
     func testClearCacheRemovesAllSessions() {
-        // Import some sessions
-        _ = bridge.importSession(pubkey: "pubkey1", sessionSecret: "secret1")
-        _ = bridge.importSession(pubkey: "pubkey2", sessionSecret: "secret2")
+        let session1 = PubkyRingSession(
+            pubkey: "pubkey1",
+            sessionSecret: "secret1",
+            capabilities: [],
+            createdAt: Date()
+        )
+        let session2 = PubkyRingSession(
+            pubkey: "pubkey2",
+            sessionSecret: "secret2",
+            capabilities: [],
+            createdAt: Date()
+        )
+        
+        bridge.setCachedSession(session1)
+        bridge.setCachedSession(session2)
         
         bridge.clearCache()
         

@@ -1809,6 +1809,41 @@ public protocol PaykitClientProtocol: AnyObject, Sendable {
     func executePayment(methodId: String, endpoint: String, amountSats: UInt64, metadataJson: String?) throws  -> PaymentExecutionResult
     
     /**
+     * Execute a payment with automatic fallback to alternative methods.
+     *
+     * This method implements the PDF-mandated fallback behavior:
+     * - Attempts the primary method first
+     * - On retryable failure, tries each fallback in order
+     * - Stops on success or non-retryable failure (to avoid double-spend)
+     *
+     * # Arguments
+     *
+     * * `candidates` - Ordered list of payment methods to try (primary first, then fallbacks)
+     * * `amount_sats` - Amount to send in satoshis
+     * * `metadata_json` - Optional metadata as JSON
+     *
+     * # Returns
+     *
+     * `FallbackExecutionResult` containing the outcome and all attempts made.
+     *
+     * # Example
+     *
+     * ```ignore
+     * let candidates = vec![
+     * PaymentCandidate { method_id: "lightning".into(), endpoint: "lnbc1000n1...".into() },
+     * PaymentCandidate { method_id: "onchain".into(), endpoint: "bc1q...".into() },
+     * ];
+     * let result = client.execute_with_fallbacks(candidates, 1000, None)?;
+     * if result.success {
+     * println!("Paid via {}", result.successful_execution.unwrap().method_id);
+     * } else {
+     * println!("All methods failed: {}", result.summary);
+     * }
+     * ```
+     */
+    func executeWithFallbacks(candidates: [PaymentCandidate], amountSats: UInt64, metadataJson: String?) throws  -> FallbackExecutionResult
+    
+    /**
      * Extract public key from scanned QR code.
      */
     func extractKeyFromQr(scannedData: String)  -> String?
@@ -2445,6 +2480,49 @@ open func executePayment(methodId: String, endpoint: String, amountSats: UInt64,
     uniffi_paykit_mobile_fn_method_paykitclient_execute_payment(self.uniffiClonePointer(),
         FfiConverterString.lower(methodId),
         FfiConverterString.lower(endpoint),
+        FfiConverterUInt64.lower(amountSats),
+        FfiConverterOptionString.lower(metadataJson),$0
+    )
+})
+}
+    
+    /**
+     * Execute a payment with automatic fallback to alternative methods.
+     *
+     * This method implements the PDF-mandated fallback behavior:
+     * - Attempts the primary method first
+     * - On retryable failure, tries each fallback in order
+     * - Stops on success or non-retryable failure (to avoid double-spend)
+     *
+     * # Arguments
+     *
+     * * `candidates` - Ordered list of payment methods to try (primary first, then fallbacks)
+     * * `amount_sats` - Amount to send in satoshis
+     * * `metadata_json` - Optional metadata as JSON
+     *
+     * # Returns
+     *
+     * `FallbackExecutionResult` containing the outcome and all attempts made.
+     *
+     * # Example
+     *
+     * ```ignore
+     * let candidates = vec![
+     * PaymentCandidate { method_id: "lightning".into(), endpoint: "lnbc1000n1...".into() },
+     * PaymentCandidate { method_id: "onchain".into(), endpoint: "bc1q...".into() },
+     * ];
+     * let result = client.execute_with_fallbacks(candidates, 1000, None)?;
+     * if result.success {
+     * println!("Paid via {}", result.successful_execution.unwrap().method_id);
+     * } else {
+     * println!("All methods failed: {}", result.summary);
+     * }
+     * ```
+     */
+open func executeWithFallbacks(candidates: [PaymentCandidate], amountSats: UInt64, metadataJson: String?)throws  -> FallbackExecutionResult  {
+    return try  FfiConverterTypeFallbackExecutionResult_lift(try rustCallWithError(FfiConverterTypePaykitMobileError_lift) {
+    uniffi_paykit_mobile_fn_method_paykitclient_execute_with_fallbacks(self.uniffiClonePointer(),
+        FfiConverterSequenceTypePaymentCandidate.lower(candidates),
         FfiConverterUInt64.lower(amountSats),
         FfiConverterOptionString.lower(metadataJson),$0
     )
@@ -5580,6 +5658,122 @@ public func FfiConverterTypeErrorMessage_lower(_ value: ErrorMessage) -> RustBuf
 
 
 /**
+ * Result of executing payment with fallbacks.
+ *
+ * Contains the successful result if any method worked,
+ * or a complete list of all attempts if all failed.
+ */
+public struct FallbackExecutionResult {
+    /**
+     * Whether any payment method succeeded.
+     */
+    public var success: Bool
+    /**
+     * The successful execution result, if any.
+     */
+    public var successfulExecution: PaymentExecutionResult?
+    /**
+     * All attempts made, in order.
+     */
+    public var attempts: [PaymentAttempt]
+    /**
+     * Summary message describing the outcome.
+     */
+    public var summary: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether any payment method succeeded.
+         */success: Bool, 
+        /**
+         * The successful execution result, if any.
+         */successfulExecution: PaymentExecutionResult?, 
+        /**
+         * All attempts made, in order.
+         */attempts: [PaymentAttempt], 
+        /**
+         * Summary message describing the outcome.
+         */summary: String) {
+        self.success = success
+        self.successfulExecution = successfulExecution
+        self.attempts = attempts
+        self.summary = summary
+    }
+}
+
+#if compiler(>=6)
+extension FallbackExecutionResult: Sendable {}
+#endif
+
+
+extension FallbackExecutionResult: Equatable, Hashable {
+    public static func ==(lhs: FallbackExecutionResult, rhs: FallbackExecutionResult) -> Bool {
+        if lhs.success != rhs.success {
+            return false
+        }
+        if lhs.successfulExecution != rhs.successfulExecution {
+            return false
+        }
+        if lhs.attempts != rhs.attempts {
+            return false
+        }
+        if lhs.summary != rhs.summary {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(success)
+        hasher.combine(successfulExecution)
+        hasher.combine(attempts)
+        hasher.combine(summary)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFallbackExecutionResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FallbackExecutionResult {
+        return
+            try FallbackExecutionResult(
+                success: FfiConverterBool.read(from: &buf), 
+                successfulExecution: FfiConverterOptionTypePaymentExecutionResult.read(from: &buf), 
+                attempts: FfiConverterSequenceTypePaymentAttempt.read(from: &buf), 
+                summary: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FallbackExecutionResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.success, into: &buf)
+        FfiConverterOptionTypePaymentExecutionResult.write(value.successfulExecution, into: &buf)
+        FfiConverterSequenceTypePaymentAttempt.write(value.attempts, into: &buf)
+        FfiConverterString.write(value.summary, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFallbackExecutionResult_lift(_ buf: RustBuffer) throws -> FallbackExecutionResult {
+    return try FfiConverterTypeFallbackExecutionResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFallbackExecutionResult_lower(_ value: FallbackExecutionResult) -> RustBuffer {
+    return FfiConverterTypeFallbackExecutionResult.lower(value)
+}
+
+
+/**
  * Health check result.
  */
 public struct HealthCheckResult {
@@ -6722,6 +6916,220 @@ public func FfiConverterTypeNoiseSessionInfo_lift(_ buf: RustBuffer) throws -> N
 #endif
 public func FfiConverterTypeNoiseSessionInfo_lower(_ value: NoiseSessionInfo) -> RustBuffer {
     return FfiConverterTypeNoiseSessionInfo.lower(value)
+}
+
+
+/**
+ * Record of a single attempt within a fallback execution.
+ */
+public struct PaymentAttempt {
+    /**
+     * Payment method attempted.
+     */
+    public var methodId: String
+    /**
+     * Endpoint attempted.
+     */
+    public var endpoint: String
+    /**
+     * Whether this attempt succeeded.
+     */
+    public var success: Bool
+    /**
+     * Error message if failed.
+     */
+    public var error: String?
+    /**
+     * Whether this failure is retryable (e.g., network timeout).
+     * Non-retryable failures (e.g., invoice already paid) stop the loop.
+     */
+    public var retryable: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Payment method attempted.
+         */methodId: String, 
+        /**
+         * Endpoint attempted.
+         */endpoint: String, 
+        /**
+         * Whether this attempt succeeded.
+         */success: Bool, 
+        /**
+         * Error message if failed.
+         */error: String?, 
+        /**
+         * Whether this failure is retryable (e.g., network timeout).
+         * Non-retryable failures (e.g., invoice already paid) stop the loop.
+         */retryable: Bool) {
+        self.methodId = methodId
+        self.endpoint = endpoint
+        self.success = success
+        self.error = error
+        self.retryable = retryable
+    }
+}
+
+#if compiler(>=6)
+extension PaymentAttempt: Sendable {}
+#endif
+
+
+extension PaymentAttempt: Equatable, Hashable {
+    public static func ==(lhs: PaymentAttempt, rhs: PaymentAttempt) -> Bool {
+        if lhs.methodId != rhs.methodId {
+            return false
+        }
+        if lhs.endpoint != rhs.endpoint {
+            return false
+        }
+        if lhs.success != rhs.success {
+            return false
+        }
+        if lhs.error != rhs.error {
+            return false
+        }
+        if lhs.retryable != rhs.retryable {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(methodId)
+        hasher.combine(endpoint)
+        hasher.combine(success)
+        hasher.combine(error)
+        hasher.combine(retryable)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaymentAttempt: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaymentAttempt {
+        return
+            try PaymentAttempt(
+                methodId: FfiConverterString.read(from: &buf), 
+                endpoint: FfiConverterString.read(from: &buf), 
+                success: FfiConverterBool.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf), 
+                retryable: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaymentAttempt, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.methodId, into: &buf)
+        FfiConverterString.write(value.endpoint, into: &buf)
+        FfiConverterBool.write(value.success, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterBool.write(value.retryable, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaymentAttempt_lift(_ buf: RustBuffer) throws -> PaymentAttempt {
+    return try FfiConverterTypePaymentAttempt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaymentAttempt_lower(_ value: PaymentAttempt) -> RustBuffer {
+    return FfiConverterTypePaymentAttempt.lower(value)
+}
+
+
+/**
+ * A payment method candidate for fallback execution.
+ */
+public struct PaymentCandidate {
+    /**
+     * Payment method identifier.
+     */
+    public var methodId: String
+    /**
+     * Payment endpoint (address, invoice, etc.).
+     */
+    public var endpoint: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Payment method identifier.
+         */methodId: String, 
+        /**
+         * Payment endpoint (address, invoice, etc.).
+         */endpoint: String) {
+        self.methodId = methodId
+        self.endpoint = endpoint
+    }
+}
+
+#if compiler(>=6)
+extension PaymentCandidate: Sendable {}
+#endif
+
+
+extension PaymentCandidate: Equatable, Hashable {
+    public static func ==(lhs: PaymentCandidate, rhs: PaymentCandidate) -> Bool {
+        if lhs.methodId != rhs.methodId {
+            return false
+        }
+        if lhs.endpoint != rhs.endpoint {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(methodId)
+        hasher.combine(endpoint)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaymentCandidate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaymentCandidate {
+        return
+            try PaymentCandidate(
+                methodId: FfiConverterString.read(from: &buf), 
+                endpoint: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaymentCandidate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.methodId, into: &buf)
+        FfiConverterString.write(value.endpoint, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaymentCandidate_lift(_ buf: RustBuffer) throws -> PaymentCandidate {
+    return try FfiConverterTypePaymentCandidate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaymentCandidate_lower(_ value: PaymentCandidate) -> RustBuffer {
+    return FfiConverterTypePaymentCandidate.lower(value)
 }
 
 
@@ -12376,6 +12784,30 @@ fileprivate struct FfiConverterOptionTypeNoiseEndpointInfo: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypePaymentExecutionResult: FfiConverterRustBuffer {
+    typealias SwiftType = PaymentExecutionResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePaymentExecutionResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePaymentExecutionResult.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePaymentStatusInfo: FfiConverterRustBuffer {
     typealias SwiftType = PaymentStatusInfo?
 
@@ -12587,6 +13019,56 @@ fileprivate struct FfiConverterSequenceTypeHealthCheckResult: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeHealthCheckResult.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePaymentAttempt: FfiConverterRustBuffer {
+    typealias SwiftType = [PaymentAttempt]
+
+    public static func write(_ value: [PaymentAttempt], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePaymentAttempt.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PaymentAttempt] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PaymentAttempt]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePaymentAttempt.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePaymentCandidate: FfiConverterRustBuffer {
+    typealias SwiftType = [PaymentCandidate]
+
+    public static func write(_ value: [PaymentCandidate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePaymentCandidate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PaymentCandidate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PaymentCandidate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePaymentCandidate.read(from: &buf))
         }
         return seq
     }
@@ -13388,6 +13870,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_paykit_mobile_checksum_method_paykitclient_execute_payment() != 54016) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_paykit_mobile_checksum_method_paykitclient_execute_with_fallbacks() != 32260) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_paykit_mobile_checksum_method_paykitclient_extract_key_from_qr() != 58479) {

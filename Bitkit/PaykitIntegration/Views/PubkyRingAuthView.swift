@@ -348,12 +348,16 @@ struct PubkyRingAuthView: View {
     }
     
     private func importManualSession() {
-        let session = bridge.importSession(
-            pubkey: manualPubkey.trimmingCharacters(in: .whitespacesAndNewlines),
-            sessionSecret: manualSessionSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        onSessionReceived(session)
-        dismiss()
+        do {
+            let session = try bridge.importSession(
+                pubkey: manualPubkey.trimmingCharacters(in: .whitespacesAndNewlines),
+                sessionSecret: manualSessionSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            onSessionReceived(session)
+            dismiss()
+        } catch {
+            errorMessage = (error as? PubkyRingError)?.userMessage ?? error.localizedDescription
+        }
     }
 }
 

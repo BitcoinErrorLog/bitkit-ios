@@ -87,7 +87,7 @@ The E2E test suite automatically creates a test wallet if needed. For manual tes
 | `testPubkyRingNotInstalledGracefulDegradation` | Verify fallback options | No |
 | `testSessionExpirationAndRefresh` | Session lifecycle | Yes |
 | `testCrossDeviceQRAuthentication` | QR code auth flow | No |
-| `testManualSessionEntry` | Manual session fallback | No |
+| `testManualSessionEntry` | Manual session fallback (DEPRECATED - skipped) | No |
 
 ### Payment Flows
 
