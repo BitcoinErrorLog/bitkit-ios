@@ -95,6 +95,7 @@ enum Route: Hashable {
     
     // Paykit routes
     case paykitDashboard
+    case paykitProfileEdit
     case paykitContacts
     case paykitContactDiscovery
     case paykitReceipts

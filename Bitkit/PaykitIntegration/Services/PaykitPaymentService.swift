@@ -99,7 +99,7 @@ public final class PaykitPaymentService {
         amountSats: UInt64,
         strategy: SelectionStrategy = .balanced
     ) async -> PaymentMethod? {
-        guard let client = try? manager.getClient() else { return nil }
+        guard let client = manager.client else { return nil }
         
         let directoryService = DirectoryService.shared
         let methods = try? await directoryService.discoverPaymentMethods(for: recipientPubkey)
@@ -117,7 +117,9 @@ public final class PaykitPaymentService {
                 amountSats: amountSats,
                 preferences: preferences
             )
-            return result.selectedMethod
+            // SelectionResult returns primaryMethod as a method ID string
+            // Find the matching PaymentMethod from our available methods
+            return methods.first { $0.methodId == result.primaryMethod }
         } catch {
             Logger.warn("Method selection failed, using first available: \(error.localizedDescription)", context: "PaykitPaymentService")
             return methods.first

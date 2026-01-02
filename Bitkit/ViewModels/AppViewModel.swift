@@ -50,6 +50,11 @@ class AppViewModel: ObservableObject {
 
     // App status initialization
     @Published var appStatusInitialized: Bool = false
+    
+    // Paykit pending navigation parameters
+    @Published var pendingPaykitRequestId: String?
+    @Published var pendingPaykitSubscriptionId: String?
+    @Published var pendingPaykitPayment: PaykitPendingPayment?
 
     func showAllEmptyStates(_ show: Bool) {
         showHomeViewEmptyState = show
@@ -301,24 +306,23 @@ extension AppViewModel {
         switch route {
         case let .paykit(pubkey, method, amount):
             Logger.info("Paykit URI: pubkey=\(pubkey), method=\(method ?? "any"), amount=\(amount?.description ?? "none")", context: "AppViewModel")
-            // Navigate to Paykit send flow with pre-filled data
-            navigationViewModel.navigate(.paykitDashboard)
-            // TODO: Pass pubkey, method, amount to the send flow
-            toast(type: .success, title: "Paykit Contact", description: "Opening payment flow for \(pubkey.prefix(8))...")
+            // Set pending payment data for PaykitContactsView to consume
+            pendingPaykitPayment = PaykitPendingPayment(
+                recipientPubkey: pubkey,
+                preferredMethod: method,
+                amountSats: amount.map { UInt64($0) }
+            )
+            navigationViewModel.navigate(.paykitContacts)
             
         case let .paymentRequest(id):
             Logger.info("Payment Request URI: id=\(id)", context: "AppViewModel")
-            // Navigate to payment request detail
-            navigationViewModel.navigate(.paykitDashboard)
-            // TODO: Navigate directly to specific request
-            toast(type: .info, title: "Payment Request", description: "Opening request \(id.prefix(8))...")
+            pendingPaykitRequestId = id
+            navigationViewModel.navigate(.paykitPaymentRequests)
             
         case let .subscription(id):
             Logger.info("Subscription URI: id=\(id)", context: "AppViewModel")
-            // Navigate to subscription detail
-            navigationViewModel.navigate(.paykitDashboard)
-            // TODO: Navigate directly to specific subscription
-            toast(type: .info, title: "Subscription", description: "Opening subscription \(id.prefix(8))...")
+            pendingPaykitSubscriptionId = id
+            navigationViewModel.navigate(.paykitSubscriptions)
         }
     }
 
@@ -602,4 +606,12 @@ extension AppViewModel {
         highBalanceIgnoreCount += 1
         highBalanceIgnoreTimestamp = Date().timeIntervalSince1970
     }
+}
+
+// MARK: - Paykit Pending Payment
+
+struct PaykitPendingPayment {
+    let recipientPubkey: String
+    let preferredMethod: String?
+    let amountSats: UInt64?
 }

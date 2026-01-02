@@ -1,5 +1,5 @@
-module PubkyNoiseFFI {
-    header "PubkyNoiseFFI.h"
+module pubky_noiseFFI {
+    header "pubky_noiseFFI.h"
     export *
 }
 

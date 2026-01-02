@@ -16,9 +16,8 @@ private struct HandleLightningStateOnScenePhaseChange: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: scenePhase) {
-                // Read scenePhase directly per iOS 17+ API
-                let newPhase = scenePhase
+            .onChange(of: scenePhase) { newPhase in
+                // iOS 16 compatible syntax with parameter
                 guard wallet.walletExists == true else {
                     return
                 }
@@ -30,7 +29,7 @@ private struct HandleLightningStateOnScenePhaseChange: ViewModifier {
                         // Schedule Paykit background tasks
                         SubscriptionBackgroundService.shared.scheduleBackgroundTask()
                         PaykitPollingService.shared.scheduleBackgroundPoll()
-                        SessionRefreshService.shared.scheduleBackgroundTask()
+                        SessionRefreshService.shared.scheduleBackgroundRefresh()
                         
                         do {
                             try await stopNodeIfNeeded()

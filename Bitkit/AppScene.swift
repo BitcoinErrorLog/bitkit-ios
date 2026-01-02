@@ -102,6 +102,24 @@ struct AppScene: View {
                 ) { notification in
                     handleQuickAction(notification)
                 }
+                
+                // Listen for Paykit payment request notifications
+                NotificationCenter.default.addObserver(
+                    forName: .paykitRequestPayment,
+                    object: nil,
+                    queue: .main
+                ) { notification in
+                    handlePaykitRequestNotification(notification)
+                }
+                
+                // Listen for Paykit subscription proposal notifications
+                NotificationCenter.default.addObserver(
+                    forName: .paykitSubscriptionProposal,
+                    object: nil,
+                    queue: .main
+                ) { notification in
+                    handlePaykitSubscriptionNotification(notification)
+                }
             }
             .onReceive(BackupService.shared.backupFailurePublisher) { intervalMinutes in
                 handleBackupFailure(intervalMinutes: intervalMinutes)
@@ -321,6 +339,28 @@ struct AppScene: View {
         default:
             break
         }
+    }
+    
+    private func handlePaykitRequestNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let requestId = userInfo["requestId"] as? String
+        else {
+            return
+        }
+        Logger.info("Handling Paykit request notification: \(requestId)", context: "AppScene")
+        app.pendingPaykitRequestId = requestId
+        navigation.navigate(.paykitPaymentRequests)
+    }
+    
+    private func handlePaykitSubscriptionNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let subscriptionId = userInfo["subscriptionId"] as? String
+        else {
+            return
+        }
+        Logger.info("Handling Paykit subscription notification: \(subscriptionId)", context: "AppScene")
+        app.pendingPaykitSubscriptionId = subscriptionId
+        navigation.navigate(.paykitSubscriptions)
     }
 
     private func handleBackupFailure(intervalMinutes: Int) {

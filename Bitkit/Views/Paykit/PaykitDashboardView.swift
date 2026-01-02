@@ -175,6 +175,16 @@ struct PaykitDashboardView: View {
             
             HStack(spacing: 12) {
                 QuickAccessCard(
+                    title: "Profile",
+                    icon: "person.circle.fill",
+                    color: .pink,
+                    badge: nil
+                ) {
+                    navigation.navigate(.paykitProfileEdit)
+                }
+                .accessibilityIdentifier("Edit Profile")
+                
+                QuickAccessCard(
                     title: "Endpoints",
                     icon: "link.circle.fill",
                     color: .indigo,
@@ -182,7 +192,9 @@ struct PaykitDashboardView: View {
                 ) {
                     navigation.navigate(.paykitPrivateEndpoints)
                 }
-                
+            }
+            
+            HStack(spacing: 12) {
                 QuickAccessCard(
                     title: "Key Rotation",
                     icon: "key.fill",
@@ -191,6 +203,8 @@ struct PaykitDashboardView: View {
                 ) {
                     navigation.navigate(.paykitRotationSettings)
                 }
+                
+                Spacer()
             }
             
             // Pubky-ring connection status

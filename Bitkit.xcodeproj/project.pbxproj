@@ -82,7 +82,6 @@
 				AppDelegate_integration.swift,
 				Info.plist,
 				PaykitIntegration/BUILD_CONFIGURATION.md,
-				PaykitIntegration/FFI/PubkyNoise.swift,
 				PipBackgroundHandler.swift,
 				PipSDK.swift,
 				PipSessionStore.swift,
@@ -723,7 +722,7 @@
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator";
+				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers";
 				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/Bitkit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -783,7 +782,7 @@
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64 $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64";
+				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers";
 				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/Bitkit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

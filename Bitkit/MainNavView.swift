@@ -290,8 +290,7 @@ struct MainNavView: View {
                 }
             case .profile:
                 if app.hasSeenProfileIntro {
-                    // ProfileView()
-                    Text("Coming Soon")
+                    ProfileEditView()
                 } else {
                     ProfileIntroView()
                 }
@@ -398,6 +397,7 @@ struct MainNavView: View {
             
             // Paykit routes
             case .paykitDashboard: PaykitDashboardView()
+            case .paykitProfileEdit: ProfileEditView()
             case .paykitContacts: PaykitContactsView()
             case .paykitContactDiscovery: ContactDiscoveryView()
             case .paykitReceipts: PaykitReceiptsView()

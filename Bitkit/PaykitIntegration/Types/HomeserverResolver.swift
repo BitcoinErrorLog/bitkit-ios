@@ -208,27 +208,16 @@ public final class HomeserverResolver {
     
     /// Resolve homeserver via DNS TXT record at _pubky.{pubkey}
     ///
-    /// Uses CFHost for DNS queries. Returns nil if DNS lookup fails.
+    /// NOTE: iOS DNS TXT resolution requires dnssd.h or Network.framework APIs.
+    /// This is not currently implemented. The resolver falls back to known
+    /// homeservers and production defaults. For custom homeserver resolution,
+    /// configure via `setOverride(url:)` or add to `knownHomeservers`.
+    ///
+    /// When using the Pubky SDK directly via `https://_pubky.<pk>/...` URLs,
+    /// the SDK handles resolution natively.
     private func resolveViaDNS(pubkey: String) async -> HomeserverURL? {
-        let dnsName = "_pubky.\(pubkey)"
-        
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                // Use CFHost for DNS queries
-                guard let hostRef = CFHostCreateWithName(nil, dnsName as CFString).takeRetainedValue() as CFHost? else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                var resolved = DarwinBoolean(false)
-                CFHostStartInfoResolution(hostRef, .addresses, nil)
-                
-                // Try to get TXT records (requires custom implementation or fallback)
-                // For now, this is a placeholder that returns nil
-                // Full DNS TXT implementation requires lower-level APIs
-                continuation.resume(returning: nil)
-            }
-        }
+        Logger.debug("DNS TXT resolution not implemented on iOS, using fallback", context: "HomeserverResolver")
+        return nil
     }
 }
 
