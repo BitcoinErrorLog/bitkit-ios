@@ -844,8 +844,6 @@
 "slashtags__error_deleting_profile" = "Nelze odstranit profil";
 "slashtags__error_pay_title" = "Není možné zaplatit kontaktu";
 "slashtags__error_pay_empty_msg" = "Kontakt, kterému se snažíte odeslat platbu, nemá platby povolené.";
-"slashtags__auth_depricated_title" = "Nedoporučený";
-"slashtags__auth_depricated_msg" = "Slashauth je zastaralý. Používejte prosím Bitkit Beta.";
 "wallet__drawer__wallet" = "Peněženka";
 "wallet__drawer__activity" = "Aktivita";
 "wallet__drawer__contacts" = "Kontakty";

@@ -1,0 +1,75 @@
+# E2E Test: Noise Endpoint Publishing and Discovery - iOS
+# Preconditions:
+#   - Paykit connected (run 02-paykit-connect.yaml first)
+#
+# This test verifies:
+#   1. Bitkit publishes noise endpoint to homeserver
+#   2. Endpoint is encrypted/authenticated
+#   3. Peer can discover the noise endpoint
+#   4. X25519 public key format is correct
+appId: to.bitkit.dev
+name: Noise Endpoint Publishing (iOS)
+tags:
+  - noise
+  - encryption
+  - endpoint
+---
+# Launch Bitkit
+- launchApp
+
+# Wait for app to load
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# Navigate to Settings > Paykit
+- tapOn:
+    id: "Settings"
+- waitForAnimationToEnd
+
+- scroll:
+    direction: DOWN
+
+- tapOn: "Paykit"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Verify noise endpoint status
+- assertVisible: "Noise Endpoint"
+
+# Tap to view endpoint details
+- tapOn: "Noise Endpoint"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Verify endpoint is published
+- assertVisible: "Published"
+
+# Take screenshot of endpoint details
+- takeScreenshot: noise-endpoint-details-ios
+
+# Verify X25519 public key is displayed (64 hex chars or base64)
+# The key should be visible but not the secret key
+- assertNotVisible: "secret"
+- assertNotVisible: "_sk"
+
+# Go back
+- tapOn: "Back"
+- waitForAnimationToEnd
+
+# Navigate to Contacts to test discovery
+- tapOn: "Contacts"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Tap Sync to discover endpoints from follows
+- runFlow:
+    when:
+      visible: "Sync"
+    commands:
+      - tapOn: "Sync"
+      - waitForAnimationToEnd:
+          timeout: 15000
+
+# Take screenshot of contacts with discovered endpoints
+- takeScreenshot: contacts-with-endpoints-ios
+

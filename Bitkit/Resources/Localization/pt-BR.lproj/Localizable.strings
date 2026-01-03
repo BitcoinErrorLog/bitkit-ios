@@ -844,8 +844,6 @@
 "slashtags__error_deleting_profile" = "Não é possível excluir o perfil";
 "slashtags__error_pay_title" = "Não foi Possível Pagar Contato";
 "slashtags__error_pay_empty_msg" = "O contato para o qual você está tentando enviar não habilitou pagamentos.";
-"slashtags__auth_depricated_title" = "Desativado";
-"slashtags__auth_depricated_msg" = "O Slashauth está desativado.";
 "wallet__drawer__wallet" = "Carteira";
 "wallet__drawer__activity" = "Atividade";
 "wallet__drawer__contacts" = "Contatos";

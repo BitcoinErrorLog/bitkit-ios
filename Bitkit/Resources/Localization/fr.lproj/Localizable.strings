@@ -866,8 +866,6 @@
 "slashtags__error_deleting_profile" = "Impossible de supprimer le profil";
 "slashtags__error_pay_title" = "Incapable de payer le contact";
 "slashtags__error_pay_empty_msg" = "Le contact à qui vous essayez d\'envoyer n\'a pas activé les paiements.";
-"slashtags__auth_depricated_title" = "Déclassé";
-"slashtags__auth_depricated_msg" = "Slashauth est obsolète. Veuillez utiliser Bitkit Beta.";
 "wallet__drawer__wallet" = "Wallet";
 "wallet__drawer__activity" = "Activité";
 "wallet__drawer__contacts" = "Contacts";

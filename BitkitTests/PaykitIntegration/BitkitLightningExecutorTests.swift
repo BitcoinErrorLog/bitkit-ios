@@ -23,17 +23,18 @@ final class BitkitLightningExecutorTests: XCTestCase {
 
     // MARK: - decodeInvoice Tests
 
-    func testDecodeInvoiceReturnsResult() throws {
-        // Given
+    func testDecodeInvoiceThrowsForInvalidInvoice() throws {
+        // Given - an invalid invoice string
         let invoice = "lntb10u1p0..."
 
-        // When
-        let result = try executor.decodeInvoice(invoice: invoice)
-
-        // Then - placeholder returns default values
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result.expiry, 3600)
-        XCTAssertFalse(result.expired)
+        // When/Then - should throw for invalid invoice
+        XCTAssertThrowsError(try executor.decodeInvoice(invoice: invoice)) { error in
+            // Verify it's a PaykitMobileError.Internal
+            if let paykitError = error as? PaykitMobileError,
+               case .Internal(let msg) = paykitError {
+                XCTAssertTrue(msg.contains("Failed to decode invoice") || msg.contains("Invalid"))
+            }
+        }
     }
 
     // MARK: - estimateFee Tests

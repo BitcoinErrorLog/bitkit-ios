@@ -158,6 +158,7 @@ final class AutoPayViewModelTests: XCTestCase {
         // Given - auto-pay is enabled with matching rule
         viewModel.settings.isEnabled = true
         viewModel.settings.globalDailyLimit = 1000000
+        viewModel.settings.confirmFirstPayment = false // Disable first-payment confirmation for this test
         try viewModel.saveSettings() // Persist settings
         viewModel.loadSettings() // Reload to ensure state is updated
         

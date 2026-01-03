@@ -844,8 +844,6 @@
 "slashtags__error_deleting_profile" = "No se puede eliminar el perfil";
 "slashtags__error_pay_title" = "Incapaz de pagar a Contacto";
 "slashtags__error_pay_empty_msg" = "El contacto al que intenta enviar no ha habilitado los pagos.";
-"slashtags__auth_depricated_title" = "Descontinuado";
-"slashtags__auth_depricated_msg" = "Slashauth está descontinuado. Por favor, utilice Bitkit Beta.";
 "wallet__drawer__wallet" = "Billetera";
 "wallet__drawer__activity" = "Actividad";
 "wallet__drawer__contacts" = "Contactos";

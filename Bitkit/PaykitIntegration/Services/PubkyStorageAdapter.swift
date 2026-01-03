@@ -262,7 +262,11 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
         let urlString = "\(baseURL)\(path)"
         
+        // SECURITY: Never log session secrets or request content
+        Logger.debug("PUT request to: \(urlString)", context: "PubkyStorageAdapter")
+        
         guard let url = URL(string: urlString) else {
+            Logger.error("PUT failed: Invalid URL for path: \(path)", context: "PubkyStorageAdapter")
             return StorageOperationResult(success: false, error: "Invalid URL")
         }
         
@@ -273,28 +277,33 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
         if needsPubkyHostHeader {
             request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+            Logger.debug("Added pubky-host header for owner: \(String(ownerPubkey.prefix(12)))...", context: "PubkyStorageAdapter")
         }
         request.httpBody = content.data(using: .utf8)
         
         var result: StorageOperationResult?
         let semaphore = DispatchSemaphore(value: 0)
         
-        let task = session.dataTask(with: request) { _, response, error in
+        let task = session.dataTask(with: request) { [weak self] _, response, error in
             defer { semaphore.signal() }
             
             if let error = error {
+                Logger.error("PUT network error: \(error.localizedDescription)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "Network error: \(error.localizedDescription)")
                 return
             }
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("PUT failed: Invalid HTTP response", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "Invalid HTTP response")
                 return
             }
             
             if (200...299).contains(httpResponse.statusCode) {
+                Logger.debug("PUT succeeded: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: true, error: nil)
             } else {
+                Logger.error("PUT failed: HTTP \(httpResponse.statusCode) for path: \(path)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "HTTP \(httpResponse.statusCode)")
             }
         }
@@ -309,7 +318,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
         let urlString = "\(baseURL)\(path)"
         
+        Logger.debug("GET request to: \(urlString)", context: "PubkyStorageAdapter")
+        
         guard let url = URL(string: urlString) else {
+            Logger.error("GET failed: Invalid URL for path: \(path)", context: "PubkyStorageAdapter")
             return StorageGetResult(success: false, content: nil, error: "Invalid URL")
         }
         
@@ -327,22 +339,27 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
             defer { semaphore.signal() }
             
             if let error = error {
+                Logger.error("GET network error: \(error.localizedDescription)", context: "PubkyStorageAdapter")
                 result = StorageGetResult(success: false, content: nil, error: "Network error: \(error.localizedDescription)")
                 return
             }
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("GET failed: Invalid HTTP response", context: "PubkyStorageAdapter")
                 result = StorageGetResult(success: false, content: nil, error: "Invalid HTTP response")
                 return
             }
             
             switch httpResponse.statusCode {
             case 404:
+                Logger.debug("GET returned 404 (not found)", context: "PubkyStorageAdapter")
                 result = StorageGetResult(success: true, content: nil, error: nil)
             case 200...299:
                 let content = data.flatMap { String(data: $0, encoding: .utf8) }
+                Logger.debug("GET succeeded: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageGetResult(success: true, content: content, error: nil)
             default:
+                Logger.error("GET failed: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageGetResult(success: false, content: nil, error: "HTTP \(httpResponse.statusCode)")
             }
         }
@@ -357,7 +374,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
         let urlString = "\(baseURL)\(path)"
         
+        Logger.debug("DELETE request to: \(urlString)", context: "PubkyStorageAdapter")
+        
         guard let url = URL(string: urlString) else {
+            Logger.error("DELETE failed: Invalid URL for path: \(path)", context: "PubkyStorageAdapter")
             return StorageOperationResult(success: false, error: "Invalid URL")
         }
         
@@ -375,19 +395,23 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
             defer { semaphore.signal() }
             
             if let error = error {
+                Logger.error("DELETE network error: \(error.localizedDescription)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "Network error: \(error.localizedDescription)")
                 return
             }
             
             guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("DELETE failed: Invalid HTTP response", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "Invalid HTTP response")
                 return
             }
             
             // 204 No Content or 200 OK are both valid for DELETE
             if (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 404 {
+                Logger.debug("DELETE succeeded: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: true, error: nil)
             } else {
+                Logger.error("DELETE failed: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageOperationResult(success: false, error: "HTTP \(httpResponse.statusCode)")
             }
         }

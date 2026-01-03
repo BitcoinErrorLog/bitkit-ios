@@ -61,11 +61,8 @@ public final class PubkyRingBridge {
     
     // Callback paths for different request types
     public struct CallbackPaths {
-        public static let session = "paykit-session"
-        public static let keypair = "paykit-keypair"
         public static let profile = "paykit-profile"
         public static let follows = "paykit-follows"
-        public static let crossDeviceSession = "paykit-cross-session"
         public static let paykitSetup = "paykit-setup"
         public static let paykitConnect = "paykit-connect"
         public static let signature = "paykit-signature"
@@ -75,9 +72,6 @@ public final class PubkyRingBridge {
     
     /// Pending session request continuation
     private var pendingSessionContinuation: CheckedContinuation<PubkyRingSession, Error>?
-    
-    /// Pending keypair request continuation
-    private var pendingKeypairContinuation: CheckedContinuation<NoiseKeypair, Error>?
     
     /// Pending signature request continuation
     private var pendingSignatureContinuation: CheckedContinuation<String, Error>?
@@ -229,34 +223,6 @@ public final class PubkyRingBridge {
         }
     }
     
-    /// Legacy session request (deprecated, use requestSecureHandoffSession instead)
-    @available(*, deprecated, message: "Use requestSecureHandoffSession() instead")
-    public func requestLegacySession() async throws -> PubkyRingSession {
-        guard isPubkyRingInstalled else {
-            throw PubkyRingError.appNotInstalled
-        }
-        
-        let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.session)"
-        let requestUrl = "\(pubkyRingScheme)://session?callback=\(callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl)"
-        
-        guard let url = URL(string: requestUrl) else {
-            throw PubkyRingError.invalidUrl
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            self.pendingSessionContinuation = continuation
-            
-            DispatchQueue.main.async {
-                UIApplication.shared.open(url) { success in
-                    if !success {
-                        self.pendingSessionContinuation?.resume(throwing: PubkyRingError.failedToOpenApp)
-                        self.pendingSessionContinuation = nil
-                    }
-                }
-            }
-        }
-    }
-    
     /// Request a noise keypair for the given epoch.
     ///
     /// Priority order:
@@ -313,42 +279,12 @@ public final class PubkyRingBridge {
             return keypair
         }
         
-        // 4. Fallback: Request from Pubky-ring (legacy support)
-        guard isPubkyRingInstalled else {
-            throw PubkyRingError.appNotInstalled
-        }
-        
-        Logger.info("Requesting noise keypair from Ring for epoch \(epoch) (no local seed available)", context: "PubkyRingBridge")
-        
-        let callbackUrl = "\(bitkitScheme)://\(CallbackPaths.keypair)"
-        let requestUrl = "\(pubkyRingScheme)://derive-keypair?deviceId=\(actualDeviceId)&epoch=\(epoch)&callback=\(callbackUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? callbackUrl)"
-        
-        guard let url = URL(string: requestUrl) else {
-            throw PubkyRingError.invalidUrl
-        }
-        
-        let keypair = try await withCheckedThrowingContinuation { continuation in
-            self.pendingKeypairContinuation = continuation
-            
-            DispatchQueue.main.async {
-                UIApplication.shared.open(url) { success in
-                    if !success {
-                        self.pendingKeypairContinuation?.resume(throwing: PubkyRingError.failedToOpenApp)
-                        self.pendingKeypairContinuation = nil
-                    }
-                }
-            }
-        }
-        
-        // Cache the keypair
-        keypairCache[cacheKey] = keypair
-        
-        // Persist secret key to NoiseKeyCache
-        if let secretKeyData = Data(hexString: keypair.secretKey) {
-            noiseKeyCache.setKey(secretKeyData, deviceId: actualDeviceId, epoch: UInt32(epoch))
-        }
-        
-        return keypair
+        // 4. No noise_seed available - require secure handoff
+        // The derive-keypair Ring action has been removed for security (exposed secrets in URLs).
+        // Users must re-authenticate using paykit-connect to get a noise_seed.
+        throw PubkyRingError.custom(
+            "No noise_seed available for local derivation. Please reconnect to Pubky Ring to refresh your session."
+        )
     }
     
     /// Derive a noise keypair locally using the stored noise_seed
@@ -600,27 +536,6 @@ public final class PubkyRingBridge {
         throw PubkyRingError.timeout
     }
     
-    /// DEPRECATED: Import a session manually (for offline/manual cross-device flow)
-    ///
-    /// This function is deprecated for security reasons. Sessions should only be
-    /// received via the encrypted secure handoff or cross-device relay flow.
-    ///
-    /// - Parameters:
-    ///   - pubkey: The z-base32 encoded public key
-    ///   - sessionSecret: The session secret from Pubky-ring
-    ///   - capabilities: Optional list of capabilities
-    /// - Throws: PubkyRingError.custom always
-    @available(*, deprecated, message: "Use requestSecureHandoffSession() or cross-device relay flow instead")
-    public func importSession(pubkey: String, sessionSecret: String, capabilities: [String] = []) throws -> PubkyRingSession {
-        Logger.warn(
-            "DEPRECATED: importSession called with plaintext session_secret. This is no longer supported.",
-            context: "PubkyRingBridge"
-        )
-        throw PubkyRingError.custom(
-            "importSession is deprecated for security reasons. Use requestSecureHandoffSession() or cross-device relay flow instead."
-        )
-    }
-    
     /// Generate a shareable link for cross-device auth
     public func generateShareableLink() -> URL {
         let request = generateCrossDeviceRequest()
@@ -776,16 +691,10 @@ public final class PubkyRingBridge {
         let path = url.host ?? url.path
         
         switch path {
-        case CallbackPaths.session:
-            return handleSessionCallback(url: url)
-        case CallbackPaths.keypair:
-            return handleKeypairCallback(url: url)
         case CallbackPaths.profile:
             return handleProfileCallback(url: url)
         case CallbackPaths.follows:
             return handleFollowsCallback(url: url)
-        case CallbackPaths.crossDeviceSession:
-            return handleCrossDeviceSessionCallback(url: url)
         case CallbackPaths.paykitSetup:
             return handlePaykitSetupCallback(url: url)
         case CallbackPaths.signature:
@@ -796,52 +705,6 @@ public final class PubkyRingBridge {
     }
     
     // MARK: - Private Methods
-    
-    /// DEPRECATED: Legacy session callback that received plaintext session_secret in URL.
-    ///
-    /// This callback path is no longer supported for security reasons.
-    /// Secrets in callback URLs are exposed in system logs, URL history, and to URL handlers.
-    ///
-    /// Use the secure handoff flow via `paykit-setup` callback instead, which:
-    /// - Stores encrypted session data on homeserver
-    /// - Only returns a reference for secure decryption
-    private func handleSessionCallback(url: URL) -> Bool {
-        Logger.warn(
-            "DEPRECATED: Received legacy session callback with plaintext secret. This flow is no longer supported.",
-            context: "PubkyRingBridge"
-        )
-        
-        let error = PubkyRingError.custom(
-            "Legacy session callback is deprecated for security reasons. " +
-            "Please update Ring app to use secure paykit-connect handoff."
-        )
-        pendingSessionContinuation?.resume(throwing: error)
-        pendingSessionContinuation = nil
-        return true
-    }
-    
-    /// DEPRECATED: Legacy keypair callback that received plaintext secret_key in URL.
-    ///
-    /// This callback path is no longer supported for security reasons.
-    /// Use local epoch derivation with noise_seed from secure handoff instead.
-    private func handleKeypairCallback(url: URL) -> Bool {
-        Logger.warn(
-            "DEPRECATED: Received legacy keypair callback with plaintext secret. This flow is no longer supported.",
-            context: "PubkyRingBridge"
-        )
-        
-        let error = PubkyRingError.custom(
-            "Legacy keypair callback is deprecated for security reasons. " +
-            "Use local epoch derivation with noise_seed from secure handoff."
-        )
-        pendingKeypairContinuation?.resume(throwing: error)
-        pendingKeypairContinuation = nil
-        return true
-    }
-    
-    // Legacy keypair callback code removed - was accepting plaintext secrets
-    // The NoiseKeypair struct is still used for internal caching, but secrets
-    // are now only received via encrypted handoff (see handlePaykitSetupCallback)
     
     private func handleProfileCallback(url: URL) -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -958,29 +821,6 @@ public final class PubkyRingBridge {
         pendingSignatureContinuation = nil
         
         return true
-    }
-    
-    /// DISABLED: Cross-device session callback with plaintext session_secret.
-    ///
-    /// SECURITY: This flow is DISABLED because it exposes secrets in callback URLs.
-    /// Secrets in URLs are logged by system URL handlers, appear in app history,
-    /// and can be captured by malicious URL handlers.
-    ///
-    /// For cross-device authentication, use the secure pubkyauth:// flow which:
-    /// - Encrypts the AuthToken with a shared client_secret (exchanged via QR)
-    /// - Only transmits encrypted blobs to the relay
-    /// - Never exposes secrets in callback URLs
-    ///
-    /// See docs/ENCRYPTED_RELAY_PROTOCOL.md for details.
-    private func handleCrossDeviceSessionCallback(url: URL) -> Bool {
-        Logger.error(
-            "SECURITY: Plaintext cross-device session callback REJECTED. Use secure pubkyauth:// flow instead.",
-            context: "PubkyRingBridge"
-        )
-        
-        // Always reject plaintext secrets in callback URLs
-        pendingCrossDeviceRequestId = nil
-        return false
     }
     
     /// Handle paykit-setup callback from Pubky-ring secure handoff

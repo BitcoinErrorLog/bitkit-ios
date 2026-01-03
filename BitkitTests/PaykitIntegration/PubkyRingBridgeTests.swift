@@ -57,33 +57,6 @@ final class PubkyRingBridgeTests: XCTestCase {
         XCTAssertNotEqual(request1.requestId, request2.requestId, "Each request should have unique ID")
     }
     
-    // MARK: - Manual Session Import Tests
-    
-    func testImportSessionThrows() {
-        let pubkey = "z6mktest1234567890"
-        let secret = "test_secret_12345"
-        
-        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret))
-    }
-    
-    func testImportSessionDoesNotCacheSession() {
-        let pubkey = "z6mktest1234567890"
-        let secret = "test_secret_12345"
-        
-        let cached = bridge.getCachedSession(for: pubkey)
-        
-        XCTAssertNil(cached)
-        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret))
-    }
-    
-    func testImportSessionWithCapabilitiesThrows() {
-        let pubkey = "z6mktest1234567890"
-        let secret = "test_secret_12345"
-        let capabilities = ["read", "write", "admin"]
-        
-        XCTAssertThrowsError(try bridge.importSession(pubkey: pubkey, sessionSecret: secret, capabilities: capabilities))
-    }
-    
     // MARK: - Authentication Status Tests
     
     func testAuthenticationStatusReturnsCorrectValue() {
@@ -127,29 +100,38 @@ final class PubkyRingBridgeTests: XCTestCase {
         XCTAssertFalse(handled, "Should not handle unknown path")
     }
     
-    func testHandleSessionCallbackCachesSession() {
+    func testHandleUnknownSessionPathReturnsFalse() {
+        // Legacy paykit-session path is no longer supported
         let pubkey = "z6mktest1234567890"
         let secret = "test_secret_12345"
         let url = URL(string: "bitkit://paykit-session?pubky=\(pubkey)&session_secret=\(secret)")!
         
-        // No pending continuation, but session should still be cached
-        _ = bridge.handleCallback(url: url)
+        // Should return false for unknown path
+        let handled = bridge.handleCallback(url: url)
+        XCTAssertFalse(handled, "Legacy paykit-session path should not be handled")
         
+        // Session should NOT be cached
         let cached = bridge.getCachedSession(for: pubkey)
-        XCTAssertNotNil(cached)
-        XCTAssertEqual(cached?.pubkey, pubkey)
+        XCTAssertNil(cached, "Session should not be cached for unknown path")
     }
     
-    func testHandleSessionCallbackParsesCapabilities() {
+    func testHandlePaykitSetupCallbackReturnsTrueForValidUrl() {
+        // paykit-setup requires secure_handoff mode with request_id
+        // Without those params, it should still return true (callback was recognized)
+        // but will resume with error
         let pubkey = "z6mktest1234567890"
         let secret = "test_secret_12345"
-        let capabilities = "read,write,admin"
-        let url = URL(string: "bitkit://paykit-session?pubky=\(pubkey)&session_secret=\(secret)&capabilities=\(capabilities)")!
+        let deviceId = "test_device_123"
+        let url = URL(string: "bitkit://paykit-setup?pubky=\(pubkey)&session_secret=\(secret)&device_id=\(deviceId)")!
         
-        _ = bridge.handleCallback(url: url)
+        let handled = bridge.handleCallback(url: url)
         
+        // Should return true because the path was recognized
+        XCTAssertTrue(handled, "paykit-setup path should be recognized")
+        
+        // Session will NOT be cached because secure_handoff params are missing
         let cached = bridge.getCachedSession(for: pubkey)
-        XCTAssertEqual(cached?.capabilities, ["read", "write", "admin"])
+        XCTAssertNil(cached, "Session should not be cached without secure handoff params")
     }
     
     // MARK: - Cache Management Tests

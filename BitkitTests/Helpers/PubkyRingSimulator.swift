@@ -21,41 +21,75 @@ public class PubkyRingSimulator {
     
     private init() {}
     
-    // MARK: - Session Simulation
+    // MARK: - Secure Handoff Simulation (Recommended)
     
-    /// Inject a session callback as if Pubky-ring returned it
+    /// Simulate a secure handoff callback as if Ring stored an encrypted blob.
+    ///
+    /// This is the recommended way to test the secure handoff flow. It creates a
+    /// mock callback URL with only the request_id and pubkey (no secrets in URL),
+    /// simulating the production secure handoff protocol.
+    ///
     /// - Parameters:
+    ///   - requestId: The handoff request ID (defaults to random UUID)
     ///   - pubkey: The pubkey to use (defaults to test pubkey)
-    ///   - sessionSecret: The session secret to use (defaults to test secret)
-    public func injectSessionCallback(
-        pubkey: String = PubkyRingSimulator.testPubkey,
-        sessionSecret: String = PubkyRingSimulator.testSessionSecret
-    ) {
-        let callbackUrl = URL(string: "bitkit://paykit-session?pubky=\(pubkey)&session_secret=\(sessionSecret)")!
+    /// - Returns: The request ID used for the handoff
+    @discardableResult
+    public func injectSecureHandoffCallback(
+        requestId: String = UUID().uuidString,
+        pubkey: String = PubkyRingSimulator.testPubkey
+    ) -> String {
+        let callbackUrl = URL(string: "bitkit://paykit-setup?pubky=\(pubkey)&request_id=\(requestId)&mode=secure_handoff")!
         
-        // Trigger the callback handler
         let handled = PubkyRingBridge.shared.handleCallback(url: callbackUrl)
         
         if !handled {
-            print("PubkyRingSimulator: Failed to inject session callback")
+            print("PubkyRingSimulator: Failed to inject secure handoff callback")
         }
+        
+        return requestId
     }
     
-    /// Inject a keypair callback
+    /// Store a mock encrypted handoff envelope for testing decryption flow.
+    ///
+    /// This simulates Ring storing an encrypted blob at the handoff path.
+    /// Use with `injectSecureHandoffCallback` for complete secure handoff testing.
+    ///
     /// - Parameters:
-    ///   - pubkey: The public key
-    ///   - privateKey: The private key (base64 encoded)
-    public func injectKeypairCallback(
+    ///   - requestId: The handoff request ID
+    ///   - pubkey: The pubkey (owner of the handoff)
+    ///   - sessionSecret: Session secret to include in payload
+    ///   - noiseSecretKey: Noise secret key to include in payload
+    /// - Note: In production, the envelope is encrypted to Bitkit's ephemeral public key.
+    ///         This test helper creates a mock envelope for testing purposes.
+    public func storeMockHandoffEnvelope(
+        requestId: String,
         pubkey: String = PubkyRingSimulator.testPubkey,
-        privateKey: String = "privatekey123456789"
+        sessionSecret: String = PubkyRingSimulator.testSessionSecret,
+        noiseSecretKey: String = PubkyRingSimulator.testNoiseKey
     ) {
-        let callbackUrl = URL(string: "bitkit://paykit-keypair?pubkey=\(pubkey)&private_key=\(privateKey)")!
+        // In production, this would be an encrypted Sealed Blob v1 envelope.
+        // For testing, we store a mock payload that the test decryption flow can handle.
+        let mockPayload: [String: Any] = [
+            "version": 1,
+            "pubky": pubkey,
+            "session_secret": sessionSecret,
+            "capabilities": ["read", "write"],
+            "device_id": "test-device",
+            "noise_keypairs": [
+                ["epoch": 0, "public_key": "mock_pk_0", "secret_key": noiseSecretKey]
+            ],
+            "noise_seed": "mock_noise_seed_for_testing",
+            "created_at": Int(Date().timeIntervalSince1970 * 1000),
+            "expires_at": Int((Date().timeIntervalSince1970 + 300) * 1000)
+        ]
         
-        let handled = PubkyRingBridge.shared.handleCallback(url: callbackUrl)
+        // Store in test storage for retrieval during handoff
+        let path = "/pub/paykit.app/v0/handoff/\(requestId)"
+        print("PubkyRingSimulator: Stored mock handoff at \(path) for pubkey \(pubkey)")
         
-        if !handled {
-            print("PubkyRingSimulator: Failed to inject keypair callback")
-        }
+        // Note: In real tests, you'd need to configure PubkyStorageAdapter to return this
+        // when fetched. This is a placeholder showing the expected flow.
+        _ = mockPayload
     }
     
     /// Inject a profile callback

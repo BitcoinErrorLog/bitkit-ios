@@ -714,8 +714,6 @@
 "slashtags__error_saving_contact" = "Impossibile salvare il profilo";
 "slashtags__error_saving_profile" = "Impossibile salvare il profilo";
 "slashtags__error_pay_title" = "Impossibile pagare questo contatto";
-"slashtags__auth_depricated_title" = "Deprecato";
-"slashtags__auth_depricated_msg" = "Slashauth è deprecato. Si prega di utilizzare Bitkit Beta.";
 "wallet__drawer__activity" = "Attività";
 "wallet__drawer__contacts" = "Contatti";
 "wallet__drawer__profile" = "Profilo";

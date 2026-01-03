@@ -444,8 +444,13 @@ public final class NoisePaymentService {
     ///
     /// - Parameters:
     ///   - port: Port to listen on
+    ///   - externalHost: Optional external host address for publishing endpoint (for relay/NAT traversal)
     ///   - handler: Callback invoked when a payment request is received
-    public func startBackgroundServer(port: Int, handler: @escaping (NoisePaymentRequest) async -> Void) async throws {
+    public func startBackgroundServer(
+        port: Int,
+        externalHost: String? = nil,
+        handler: @escaping (NoisePaymentRequest) async -> Void
+    ) async throws {
         guard !isServerRunning else {
             Logger.warn("NoisePaymentService: Background server already running", context: "NoisePaymentService")
             return
@@ -465,6 +470,9 @@ public final class NoisePaymentService {
         isServerRunning = true
         
         Logger.info("NoisePaymentService: Server started on port \(port)", context: "NoisePaymentService")
+        
+        // Update Noise endpoint on homeserver with actual host/port
+        await updateNoiseEndpointOnServer(port: port, externalHost: externalHost)
         
         // Accept a single connection (push-wake mode)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -507,6 +515,69 @@ public final class NoisePaymentService {
         isServerRunning = false
         serverRequestHandler = nil
         Logger.info("NoisePaymentService: Background server stopped", context: "NoisePaymentService")
+    }
+    
+    /// Update Noise endpoint on homeserver with current server address.
+    /// Best-effort: failures are logged but don't stop the server.
+    private func updateNoiseEndpointOnServer(port: Int, externalHost: String?) async {
+        do {
+            let keyManager = PaykitKeyManager.shared
+            
+            guard let keypair = keyManager.getCachedNoiseKeypair() else {
+                Logger.warn("NoisePaymentService: Cannot update Noise endpoint: no keypair cached", context: "NoisePaymentService")
+                return
+            }
+            
+            // Use provided host, or fall back to local IP for testing
+            let host = externalHost ?? getLocalIPAddress() ?? "localhost"
+            
+            try await DirectoryService.shared.publishNoiseEndpoint(
+                host: host,
+                port: UInt16(port),
+                noisePubkey: keypair.publicKey,
+                metadata: nil
+            )
+            Logger.info("NoisePaymentService: Updated Noise endpoint to \(host):\(port)", context: "NoisePaymentService")
+        } catch {
+            // Log but don't fail - server is already running
+            Logger.warn("NoisePaymentService: Failed to update Noise endpoint: \(error.localizedDescription)", context: "NoisePaymentService")
+        }
+    }
+    
+    /// Get local IP address for testing purposes.
+    /// In production, use a relay service for NAT traversal.
+    private func getLocalIPAddress() -> String? {
+        var address: String?
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        
+        guard getifaddrs(&ifaddr) == 0 else { return nil }
+        defer { freeifaddrs(ifaddr) }
+        
+        var ptr = ifaddr
+        while ptr != nil {
+            defer { ptr = ptr?.pointee.ifa_next }
+            
+            guard let interface = ptr?.pointee else { continue }
+            let addrFamily = interface.ifa_addr.pointee.sa_family
+            
+            // Skip non-IPv4 and loopback
+            guard addrFamily == UInt8(AF_INET) else { continue }
+            let name = String(cString: interface.ifa_name)
+            guard name == "en0" else { continue }
+            
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            getnameinfo(
+                interface.ifa_addr,
+                socklen_t(interface.ifa_addr.pointee.sa_len),
+                &hostname,
+                socklen_t(hostname.count),
+                nil,
+                0,
+                NI_NUMERICHOST
+            )
+            address = String(cString: hostname)
+        }
+        return address
     }
     
     /// Handle an incoming server connection

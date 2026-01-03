@@ -772,8 +772,6 @@
 "slashtags__error_saving_contact" = "Не удалось сохранить контакт";
 "slashtags__error_saving_profile" = "Не удалось сохранить профиль";
 "slashtags__error_pay_title" = "Невозможно Заплатить Контакту";
-"slashtags__auth_depricated_title" = "Устарело";
-"slashtags__auth_depricated_msg" = "Slashauth устарел. Пожалуйста, используйте Bitkit Beta.";
 "wallet__drawer__activity" = "Активность";
 "wallet__drawer__contacts" = "Контакты";
 "wallet__drawer__profile" = "Профиль";

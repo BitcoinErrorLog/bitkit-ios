@@ -250,6 +250,17 @@ public final class SecureHandoffHandler {
             await deletePayloadQuietly(pubkey: pubkey, requestId: requestId, sessionSecret: result.session.sessionSecret)
         }
         
+        // 7. Verify Ring published the Noise endpoint (non-blocking diagnostic)
+        Task {
+            let noisePublished = await verifyNoiseEndpointPublished(pubkey: pubkey)
+            if !noisePublished {
+                Logger.warn(
+                    "Noise endpoint was not published by Ring - encrypted payment channels may not work",
+                    context: "SecureHandoffHandler"
+                )
+            }
+        }
+        
         Logger.info("Secure handoff completed for \(pubkey.prefix(12))...", context: "SecureHandoffHandler")
         return result
     }
@@ -464,6 +475,40 @@ public final class SecureHandoffHandler {
             Logger.info("Deleted secure handoff payload: \(requestId.prefix(16))...", context: "SecureHandoffHandler")
         } catch {
             Logger.warn("Failed to delete handoff payload: \(error.localizedDescription)", context: "SecureHandoffHandler")
+        }
+    }
+    
+    // MARK: - Noise Endpoint Verification
+    
+    /// Verify that Ring published the Noise endpoint during handoff.
+    ///
+    /// Ring v2 publishes the Noise endpoint using SDK put() which signs with Ed25519.
+    /// This verification uses DirectoryService.discoverNoiseEndpoint() to actually parse
+    /// the endpoint with the same logic that Bitkit will use later, ensuring schema compatibility.
+    ///
+    /// - Parameter pubkey: The user's pubkey in z32 format
+    /// - Returns: True if the Noise endpoint is discoverable and parseable, false otherwise
+    public func verifyNoiseEndpointPublished(pubkey: String) async -> Bool {
+        Logger.debug("Verifying Noise endpoint via DirectoryService for \(pubkey.prefix(12))...", context: "SecureHandoffHandler")
+        
+        do {
+            // Use DirectoryService to parse the endpoint - validates schema matches PaykitMobile FFI
+            if let endpoint = try await DirectoryService.shared.discoverNoiseEndpoint(for: pubkey) {
+                Logger.info(
+                    "Verified Noise endpoint for \(pubkey.prefix(12))...: host=\(endpoint.host), port=\(endpoint.port)",
+                    context: "SecureHandoffHandler"
+                )
+                return true
+            }
+            
+            Logger.warn(
+                "Noise endpoint not found or invalid schema for \(pubkey.prefix(12))... - Ring may not have published it correctly",
+                context: "SecureHandoffHandler"
+            )
+            return false
+        } catch {
+            Logger.warn("Error verifying Noise endpoint: \(error.localizedDescription)", context: "SecureHandoffHandler")
+            return false
         }
     }
 }

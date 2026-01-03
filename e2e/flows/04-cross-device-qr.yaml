@@ -1,0 +1,80 @@
+# E2E Test: Cross-Device QR Authentication - iOS
+# This flow generates a QR code for cross-device authentication
+# The QR content is encrypted using Sealed Blob v1
+#
+# Preconditions:
+#   - Bitkit iOS app installed
+#   - No existing session
+appId: to.bitkit.dev
+name: Cross-Device QR Generation (iOS)
+tags:
+  - cross-device
+  - encryption
+  - qr
+---
+# Launch Bitkit fresh
+- clearState
+- launchApp
+
+# Wait for app to load
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# Handle onboarding if needed
+- runFlow:
+    when:
+      visible: "Create Wallet"
+    commands:
+      - tapOn: "Create Wallet"
+      - waitForAnimationToEnd:
+          timeout: 30000
+
+# Navigate to Settings > Paykit
+- tapOn:
+    id: "Settings"
+- waitForAnimationToEnd
+
+- scroll:
+    direction: DOWN
+
+- tapOn: "Paykit"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Tap "Connect Pubky-ring"
+- tapOn: "Connect Pubky-ring"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Select QR Code option (for cross-device)
+- tapOn: "QR Code"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Verify QR code is displayed
+- assertVisible:
+    id: "QRCode"
+
+# Verify countdown timer is shown
+- assertVisible: "expires"
+
+# Take screenshot of QR code
+- takeScreenshot: cross-device-qr-ios
+
+# Verify share options are available
+- runFlow:
+    when:
+      visible: "Share"
+    commands:
+      - assertVisible: "Share"
+
+- runFlow:
+    when:
+      visible: "Copy Link"
+    commands:
+      - assertVisible: "Copy Link"
+
+# The QR content contains an encrypted payload
+# We verify this by checking for sealed blob indicators in the URL
+# Note: Actual verification is done by the orchestrator which extracts and validates the blob
+

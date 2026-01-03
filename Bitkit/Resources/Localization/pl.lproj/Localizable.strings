@@ -844,8 +844,6 @@
 "slashtags__error_deleting_profile" = "Nie można usunąć profilu";
 "slashtags__error_pay_title" = "Brak możliwości zapłaty Kontaktowi";
 "slashtags__error_pay_empty_msg" = "Kontakt, do którego chesz wysłać, nie aktywował płatności.";
-"slashtags__auth_depricated_title" = "Przestarzałe";
-"slashtags__auth_depricated_msg" = "Slashauth jest przestarzałe. Proszę używać Bitkit Beta.";
 "wallet__drawer__wallet" = "Portfel";
 "wallet__drawer__activity" = "Aktywność";
 "wallet__drawer__contacts" = "Kontakty";

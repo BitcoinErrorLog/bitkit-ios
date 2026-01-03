@@ -254,13 +254,6 @@ final class PaykitE2ETests: XCTestCase {
         }
     }
     
-    /// Test: Manual session entry fallback
-    /// DEPRECATED: Manual plaintext session entry is no longer supported.
-    /// Use requestSecureHandoffSession() or cross-device relay flow instead.
-    func testManualSessionEntry() throws {
-        throw XCTSkip("Manual session entry is deprecated - use secure handoff or cross-device relay instead")
-    }
-    
     // MARK: - Payment Request Tests
     
     /// Test: Create a new payment request

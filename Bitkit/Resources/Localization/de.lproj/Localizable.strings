@@ -827,8 +827,6 @@
 "slashtags__error_deleting_profile" = "Kann Benutzerprofil nicht löschen";
 "slashtags__error_pay_title" = "Kontakt konnte nicht bezahlt werden";
 "slashtags__error_pay_empty_msg" = "Der Kontakt, an den Sie zu senden versuchen, hat keine Zahlungen aktiviert.";
-"slashtags__auth_depricated_title" = "Abgelehnt";
-"slashtags__auth_depricated_msg" = "Slashauth ist veraltet. Bitte verwenden Sie Bitkit Beta.";
 "wallet__drawer__wallet" = "Wallet";
 "wallet__drawer__activity" = "Aktivität";
 "wallet__drawer__contacts" = "Kontakte";

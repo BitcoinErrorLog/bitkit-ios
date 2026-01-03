@@ -12,8 +12,6 @@ struct PubkyRingAuthView: View {
     @State private var crossDeviceRequest: CrossDeviceRequest?
     @State private var isPolling = false
     @State private var errorMessage: String?
-    @State private var manualPubkey = ""
-    @State private var manualSessionSecret = ""
     @State private var timeRemaining: TimeInterval = 0
     
     let onSessionReceived: (PubkyRingSession) -> Void
@@ -29,18 +27,13 @@ struct PubkyRingAuthView: View {
                     Picker("Authentication Method", selection: $selectedTab) {
                         Text("Same Device").tag(0)
                         Text("QR Code").tag(1)
-                        Text("Manual").tag(2)
                     }
                     .pickerStyle(.segmented)
                     .padding()
                 } else {
-                    Picker("Authentication Method", selection: $selectedTab) {
-                        Text("QR Code").tag(1)
-                        Text("Manual").tag(2)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding()
-                    .onAppear { selectedTab = 1 }
+                    // Only QR Code available when Ring not installed
+                    EmptyView()
+                        .onAppear { selectedTab = 1 }
                 }
                 
                 // Content based on selected tab
@@ -49,7 +42,6 @@ struct PubkyRingAuthView: View {
                         sameDeviceTab.tag(0)
                     }
                     crossDeviceTab.tag(1)
-                    manualEntryTab.tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
@@ -239,67 +231,6 @@ struct PubkyRingAuthView: View {
         }
     }
     
-    // MARK: - Manual Entry Tab
-    
-    private var manualEntryTab: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Image(systemName: "keyboard")
-                    .font(.system(size: 60))
-                    .foregroundColor(.orange)
-                
-                Text("Manual Entry")
-                    .font(.title2.bold())
-                
-                Text("Enter your Pubky credentials manually if other methods aren't available.")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Public Key (z-base32)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    TextField("e.g., z6mk...", text: $manualPubkey)
-                        .textFieldStyle(.roundedBorder)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                }
-                .padding(.horizontal)
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Session Secret")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    SecureField("Secret from Pubky-ring", text: $manualSessionSecret)
-                        .textFieldStyle(.roundedBorder)
-                }
-                .padding(.horizontal)
-                
-                Button {
-                    importManualSession()
-                } label: {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("Import Session")
-                    }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(manualPubkey.isEmpty || manualSessionSecret.isEmpty ? Color.gray : Color.orange)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                .disabled(manualPubkey.isEmpty || manualSessionSecret.isEmpty)
-                .padding(.horizontal)
-            }
-            .padding(.vertical)
-        }
-    }
-    
     // MARK: - Actions
     
     private func authenticateWithPubkyRing() async {
@@ -344,19 +275,6 @@ struct PubkyRingAuthView: View {
                     errorMessage = (error as? PubkyRingError)?.userMessage ?? "Authentication timed out. Please try again."
                 }
             }
-        }
-    }
-    
-    private func importManualSession() {
-        do {
-            let session = try bridge.importSession(
-                pubkey: manualPubkey.trimmingCharacters(in: .whitespacesAndNewlines),
-                sessionSecret: manualSessionSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-            onSessionReceived(session)
-            dismiss()
-        } catch {
-            errorMessage = (error as? PubkyRingError)?.userMessage ?? error.localizedDescription
         }
     }
 }

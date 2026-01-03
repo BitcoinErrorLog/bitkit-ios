@@ -1,0 +1,127 @@
+# E2E Test: Import Identity into Pubky Ring (iOS)
+# Preconditions:
+#   - Pubky Ring app installed on iOS Simulator
+#   - ios-ai-tester.pkarr available (shared via Files app or copied to Documents)
+#   - Simulator running with network access
+appId: to.pubky.ring
+name: Import Test Identity (iOS)
+tags:
+  - identity
+  - setup
+---
+# Start fresh - clear app data
+- clearState
+
+# Launch Ring app
+- launchApp
+
+# Wait for app to load
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# Handle Terms of Use screen if visible
+- runFlow:
+    when:
+      visible: "Terms of Use"
+    commands:
+      # Tap the Terms of Use checkbox
+      - tapOn:
+          text: "I declare that I have read and accept the terms of use."
+      - waitForAnimationToEnd
+      
+      # Tap Privacy Policy checkbox
+      - tapOn:
+          text: "I have read and accept the privacy policy."
+      - waitForAnimationToEnd
+      
+      # Tap Continue button
+      - tapOn: "Continue"
+      - waitForAnimationToEnd:
+          timeout: 5000
+
+# Handle onboarding "Get Started" screen if visible
+- runFlow:
+    when:
+      visible: "Get Started"
+    commands:
+      - tapOn: "Get Started"
+      - waitForAnimationToEnd
+
+# Now we should see the main screen with pubky list
+# Tap on the "+ Add pubky" button
+- tapOn: "Add pubky"
+- waitForAnimationToEnd
+
+# On the "Your keys, your identity" screen, tap "Import pubky"
+- tapOn: "Import pubky"
+- waitForAnimationToEnd
+
+# Select "Encrypted File" option
+- tapOn: "Encrypted File"
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# File picker should open
+# On iOS, navigate to the Files app location where the pkarr file is stored
+# For simulator testing, we use shared Documents folder
+- runFlow:
+    when:
+      visible: "Browse"
+    commands:
+      - tapOn: "Browse"
+      - waitForAnimationToEnd:
+          timeout: 3000
+
+# Navigate to test file location
+- runFlow:
+    when:
+      visible: "On My iPhone"
+    commands:
+      - tapOn: "On My iPhone"
+      - waitForAnimationToEnd
+
+# Select the pkarr file
+- tapOn: "ios-ai-tester"
+- waitForAnimationToEnd:
+    timeout: 5000
+
+# Password prompt should appear - enter the password
+- inputText: "tester"
+
+# Tap Import button
+- tapOn: "Import"
+
+# Wait for import to complete
+- waitForAnimationToEnd:
+    timeout: 15000
+
+# Handle success sheet - tap Continue
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Continue"
+      - waitForAnimationToEnd
+
+# May need to handle setup screen
+- runFlow:
+    when:
+      visible: "Done"
+    commands:
+      - tapOn: "Done"
+      - waitForAnimationToEnd
+
+# Skip any optional screens
+- runFlow:
+    when:
+      visible: "Skip"
+    commands:
+      - tapOn: "Skip"
+      - waitForAnimationToEnd
+
+# Final verification - pubky should be visible, not the placeholder
+- assertNotVisible: "xxxxx..xxxxx"
+
+# Take screenshot for evidence
+- takeScreenshot: identity-imported-ios
+

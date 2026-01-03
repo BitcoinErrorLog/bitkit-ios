@@ -552,34 +552,6 @@ public final class DirectoryService {
         }
     }
     
-    /// Discover pending payment requests from the Pubky directory.
-    ///
-    /// DEPRECATED: This method lists our own storage which is the wrong model.
-    /// Use `discoverPendingRequestsFromPeer` to poll each known contact's storage.
-    @available(*, deprecated, message: "Use discoverPendingRequestsFromPeer to poll known contacts")
-    public func discoverPendingRequests(for ownerPubkey: String) async throws -> [DiscoveredRequest] {
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
-        let pubkyStorage = PubkyStorageAdapter.shared
-        
-        let scope = try PaykitV0Protocol.recipientScope(ownerPubkey)
-        let requestsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.requestsSubpath)/\(scope)/"
-        
-        do {
-            let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: ownerPubkey)
-            
-            var requests: [DiscoveredRequest] = []
-            for requestId in requestFiles {
-                if let request = await decryptAndParsePaymentRequest(requestId: requestId, path: requestsPath + requestId, adapter: unauthAdapter, peerPubkey: ownerPubkey, myPubkey: ownerPubkey) {
-                    requests.append(request)
-                }
-            }
-            return requests
-        } catch {
-            Logger.error("Failed to discover pending requests for \(ownerPubkey): \(error)", context: "DirectoryService")
-            return []
-        }
-    }
-    
     /// Discover subscription proposals from a peer's storage.
     ///
     /// In the v0 provider-storage model, subscribers poll known providers and list
@@ -608,34 +580,6 @@ public final class DirectoryService {
             return proposals
         } catch {
             Logger.error("Failed to discover proposals from \(peerPubkey): \(error)", context: "DirectoryService")
-            return []
-        }
-    }
-    
-    /// Discover subscription proposals from the Pubky directory.
-    ///
-    /// DEPRECATED: This method uses the wrong storage model.
-    /// Use `discoverSubscriptionProposalsFromPeer` to poll each known provider's storage.
-    @available(*, deprecated, message: "Use discoverSubscriptionProposalsFromPeer to poll known providers")
-    public func discoverSubscriptionProposals(for ownerPubkey: String) async throws -> [DiscoveredSubscriptionProposal] {
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
-        let pubkyStorage = PubkyStorageAdapter.shared
-        
-        let scope = try PaykitV0Protocol.subscriberScope(ownerPubkey)
-        let proposalsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.subscriptionProposalsSubpath)/\(scope)/"
-        
-        do {
-            let proposalFiles = try await pubkyStorage.listDirectory(path: proposalsPath, adapter: unauthAdapter, ownerPubkey: ownerPubkey)
-            
-            var proposals: [DiscoveredSubscriptionProposal] = []
-            for proposalId in proposalFiles {
-                if let proposal = await decryptAndParseSubscriptionProposal(proposalId: proposalId, path: proposalsPath + proposalId, adapter: unauthAdapter, peerPubkey: ownerPubkey, myPubkey: ownerPubkey) {
-                    proposals.append(proposal)
-                }
-            }
-            return proposals
-        } catch {
-            Logger.error("Failed to discover subscription proposals for \(ownerPubkey): \(error)", context: "DirectoryService")
             return []
         }
     }

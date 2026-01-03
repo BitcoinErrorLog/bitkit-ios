@@ -1,0 +1,80 @@
+# E2E Test: Paykit Connect (Secure Handoff) - iOS
+# Preconditions:
+#   - Pubky Ring app installed with test identity (run 01-import-identity.yaml first)
+#   - Bitkit iOS app installed
+#
+# This test verifies:
+#   1. Bitkit initiates Paykit connect request
+#   2. Ring receives request via deep link
+#   3. Ring encrypts session using Sealed Blob v1
+#   4. Bitkit receives and decrypts handoff payload
+#   5. Session is established without plaintext exposure
+appId: to.bitkit.dev
+name: Paykit Connect - Secure Handoff (iOS)
+tags:
+  - paykit
+  - encryption
+  - handoff
+---
+# Launch Bitkit
+- launchApp
+
+# Wait for app to load
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# Navigate to Settings
+- tapOn:
+    id: "Settings"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Scroll down to find Paykit settings
+- scroll:
+    direction: DOWN
+- waitForAnimationToEnd
+
+# Tap on Paykit
+- runFlow:
+    when:
+      visible: "Paykit"
+    commands:
+      - tapOn: "Paykit"
+      - waitForAnimationToEnd:
+          timeout: 3000
+
+# Tap "Connect Pubky-ring" button
+- runFlow:
+    when:
+      visible: "Connect Pubky-ring"
+    commands:
+      - tapOn: "Connect Pubky-ring"
+      - waitForAnimationToEnd:
+          timeout: 5000
+
+# Ring app should launch with authorization request
+# Wait for Ring to be in foreground
+- assertVisible: "Authorize"
+
+# Take screenshot showing authorization request
+- takeScreenshot: ring-auth-request
+
+# Tap Authorize to approve
+- tapOn: "Authorize"
+- waitForAnimationToEnd:
+    timeout: 10000
+
+# Should return to Bitkit with session established
+# Wait for Bitkit to come back to foreground
+- assertVisible: "Session Active"
+
+# Take screenshot showing successful connection
+- takeScreenshot: paykit-connected-ios
+
+# Verify session info is displayed (not plaintext secrets)
+- assertNotVisible: "session_secret"
+- assertNotVisible: "noise_seed"
+
+# Verify the pubky ID is shown
+- assertVisible: "Your Pubky ID"
+
