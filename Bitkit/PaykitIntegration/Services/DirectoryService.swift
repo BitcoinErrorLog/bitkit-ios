@@ -126,7 +126,10 @@ public final class DirectoryService {
         Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey) on \(homeserverBaseURL ?? "default")", context: "DirectoryService")
     }
     
-    /// Discover noise endpoints for a recipient
+    /// Discover noise endpoints for a recipient.
+    ///
+    /// Tries FFI-based discovery first, then falls back to direct HTTP if FFI fails.
+    /// This fallback is necessary because iOS simulators may have pkarr DNS resolution issues.
     public func discoverNoiseEndpoint(for recipientPubkey: String) async throws -> NoiseEndpointInfo? {
         guard paykitClient != nil else {
             throw DirectoryError.notConfigured
@@ -139,10 +142,82 @@ public final class DirectoryService {
             return transport
         }()
         
+        // Try FFI first
         do {
-            return try Bitkit.discoverNoiseEndpoint(transport: transport, recipientPubkey: recipientPubkey)
+            if let result = try Bitkit.discoverNoiseEndpoint(transport: transport, recipientPubkey: recipientPubkey) {
+                return result
+            }
         } catch {
-            Logger.error("Failed to discover Noise endpoint for \(recipientPubkey): \(error)", context: "DirectoryService")
+            Logger.debug("FFI discoverNoiseEndpoint failed for \(recipientPubkey.prefix(12))...: \(error)", context: "DirectoryService")
+        }
+        
+        // Fallback: direct HTTP to homeserver (bypasses pkarr DNS issues in simulators)
+        return await discoverNoiseEndpointViaHTTP(recipientPubkey)
+    }
+    
+    /// HTTP fallback for discovering Noise endpoints.
+    ///
+    /// Directly queries the homeserver at `/pub/paykit.app/v0/noise` with the pubky-host header.
+    /// This bypasses pkarr DNS resolution which may fail in iOS simulators.
+    private func discoverNoiseEndpointViaHTTP(_ recipientPubkey: String) async -> NoiseEndpointInfo? {
+        let effectiveHomeserverURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let noisePath = PaykitV0Protocol.noiseEndpointPath()
+        
+        Logger.debug("Fetching Noise endpoint via HTTP: \(effectiveHomeserverURL)\(noisePath) for \(recipientPubkey.prefix(12))...", context: "DirectoryService")
+        
+        guard let url = URL(string: "\(effectiveHomeserverURL)\(noisePath)") else {
+            Logger.error("Invalid URL for Noise endpoint discovery", context: "DirectoryService")
+            return nil
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(recipientPubkey, forHTTPHeaderField: "pubky-host")
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("Invalid HTTP response for Noise endpoint discovery", context: "DirectoryService")
+                return nil
+            }
+            
+            if httpResponse.statusCode == 404 {
+                Logger.debug("No Noise endpoint found for \(recipientPubkey.prefix(12))... via HTTP", context: "DirectoryService")
+                return nil
+            }
+            
+            guard (200...299).contains(httpResponse.statusCode) else {
+                Logger.error("HTTP \(httpResponse.statusCode) for Noise endpoint discovery", context: "DirectoryService")
+                return nil
+            }
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                Logger.error("Invalid JSON for Noise endpoint", context: "DirectoryService")
+                return nil
+            }
+            
+            let host = json["host"] as? String ?? ""
+            let port = json["port"] as? Int ?? 0
+            let pubkey = json["pubkey"] as? String ?? ""
+            let metadata = json["metadata"] as? String
+            
+            if pubkey.isEmpty {
+                Logger.warn("Noise endpoint for \(recipientPubkey.prefix(12))... has no pubkey", context: "DirectoryService")
+                return nil
+            }
+            
+            Logger.debug("Discovered Noise endpoint for \(recipientPubkey.prefix(12))... via HTTP: \(host):\(port)", context: "DirectoryService")
+            return NoiseEndpointInfo(
+                recipientPubkey: recipientPubkey,
+                host: host,
+                port: UInt16(port),
+                serverNoisePubkey: pubkey,
+                metadata: metadata
+            )
+        } catch {
+            Logger.error("Failed to discover Noise endpoint via HTTP for \(recipientPubkey.prefix(12))...: \(error)", context: "DirectoryService")
             return nil
         }
     }
@@ -703,6 +778,90 @@ public final class DirectoryService {
             return nil
         }
     }
+    
+    // MARK: - Subscription Proposal Publishing
+    
+    /// Publish a subscription proposal to our storage for the subscriber to discover.
+    ///
+    /// The proposal is stored ENCRYPTED at the canonical v0 path:
+    /// `/pub/paykit.app/v0/subscriptions/proposals/{subscriber_scope}/{proposalId}`
+    ///
+    /// SECURITY: Proposals are encrypted using Sealed Blob v1 to subscriber's Noise public key.
+    /// Uses canonical AAD format: `paykit:v0:subscription_proposal:{path}:{proposalId}`
+    ///
+    /// - Parameters:
+    ///   - proposal: The subscription proposal to publish
+    ///   - subscriberPubkey: The z32 pubkey of the subscriber
+    /// - Throws: DirectoryError.notConfigured if session is not configured
+    /// - Throws: DirectoryError.publishFailed if the publish operation fails
+    /// - Throws: DirectoryError.encryptionFailed if encryption fails (e.g., subscriber has no Noise endpoint)
+    public func publishSubscriptionProposal(_ proposal: SubscriptionProposal, subscriberPubkey: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        // Get our identity pubkey (provider)
+        guard let providerPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            throw DirectoryError.notConfigured
+        }
+        
+        // Use canonical v0 path (scope-based)
+        let proposalPath = try PaykitV0Protocol.subscriptionProposalPath(subscriberPubkeyZ32: subscriberPubkey, proposalId: proposal.id)
+        
+        // Build proposal JSON
+        var proposalDict: [String: Any] = [
+            "provider_pubkey": providerPubkey,
+            "amount_sats": proposal.amountSats,
+            "currency": proposal.currency,
+            "frequency": proposal.frequency,
+            "method_id": proposal.methodId,
+            "created_at": Int64(proposal.createdAt.timeIntervalSince1970)
+        ]
+        if !proposal.providerName.isEmpty {
+            proposalDict["provider_name"] = proposal.providerName
+        }
+        if !proposal.description.isEmpty {
+            proposalDict["description"] = proposal.description
+        }
+        
+        let proposalData = try JSONSerialization.data(withJSONObject: proposalDict)
+        
+        // Discover subscriber's Noise endpoint to get their public key for encryption
+        guard let subscriberNoiseEndpoint = try await discoverNoiseEndpoint(for: subscriberPubkey) else {
+            throw DirectoryError.encryptionFailed("Subscriber has no Noise endpoint published")
+        }
+        
+        // Get subscriber's Noise public key as bytes
+        guard let subscriberNoisePkBytes = Data(hex: subscriberNoiseEndpoint.serverNoisePubkey) else {
+            throw DirectoryError.encryptionFailed("Invalid subscriber Noise public key format")
+        }
+        
+        // Build canonical AAD
+        let aad = try PaykitV0Protocol.subscriptionProposalAad(subscriberPubkeyZ32: subscriberPubkey, proposalId: proposal.id)
+        
+        // Encrypt proposal using Sealed Blob v1 with canonical AAD
+        let encryptedEnvelope: String
+        do {
+            encryptedEnvelope = try sealedBlobEncrypt(
+                recipientPk: subscriberNoisePkBytes,
+                plaintext: proposalData,
+                aad: aad,
+                purpose: PaykitV0Protocol.purposeSubscriptionProposal
+            )
+        } catch {
+            Logger.error("Failed to encrypt subscription proposal: \(error)", context: "DirectoryService")
+            throw DirectoryError.encryptionFailed("Encryption failed: \(error.localizedDescription)")
+        }
+        
+        // Publish to homeserver
+        let result = adapter.put(path: proposalPath, content: encryptedEnvelope)
+        if !result.success {
+            Logger.error("Failed to publish subscription proposal: \(result.error ?? "Unknown")", context: "DirectoryService")
+            throw DirectoryError.publishFailed(result.error ?? "Unknown error")
+        }
+        
+        Logger.info("Published encrypted subscription proposal \(proposal.id) to \(subscriberPubkey.prefix(12))...", context: "DirectoryService")
+    }
 }
 
 /// Discovered contact from directory with health tracking
@@ -774,6 +933,7 @@ public enum DirectoryError: LocalizedError {
     case parseError(String)
     case notFound(String)
     case publishFailed(String)
+    case encryptionFailed(String)
     
     public var errorDescription: String? {
         switch self {
@@ -787,6 +947,8 @@ public enum DirectoryError: LocalizedError {
             return "Not found: \(resource)"
         case .publishFailed(let msg):
             return "Publish failed: \(msg)"
+        case .encryptionFailed(let msg):
+            return "Encryption failed: \(msg)"
         }
     }
 }

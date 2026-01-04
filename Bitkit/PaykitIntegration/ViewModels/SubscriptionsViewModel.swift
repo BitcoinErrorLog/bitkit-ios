@@ -16,6 +16,11 @@ class SubscriptionsViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var showingAddSubscription = false
     
+    // Sending proposal state
+    @Published var isSending = false
+    @Published var sendSuccess = false
+    @Published var sendError: String?
+    
     // Spending limit tracking
     @Published var totalSpentThisMonth: Int64 = 0
     @Published var monthlySpendingLimit: Int64 = 1000000 // 1M sats default
@@ -25,11 +30,13 @@ class SubscriptionsViewModel: ObservableObject {
     }
     
     private let subscriptionStorage: SubscriptionStorage
+    private let directoryService: DirectoryService
     private let identityName: String
     
-    init(identityName: String = "default") {
+    init(identityName: String = "default", directoryService: DirectoryService = .shared) {
         self.identityName = identityName
         self.subscriptionStorage = SubscriptionStorage(identityName: identityName)
+        self.directoryService = directoryService
     }
     
     func loadSubscriptions() {
@@ -105,6 +112,65 @@ class SubscriptionsViewModel: ObservableObject {
         // Mark as declined locally (no remote delete in provider-storage model)
         try subscriptionStorage.markProposalAsDeclined(id: proposal.id)
         loadProposals()
+    }
+    
+    // MARK: - Send Proposal
+    
+    /// Send a subscription proposal to a subscriber.
+    ///
+    /// This encrypts the proposal and publishes it to our homeserver storage
+    /// for the subscriber to discover and accept.
+    ///
+    /// - Parameters:
+    ///   - recipientPubkey: The z32 pubkey of the subscriber
+    ///   - amountSats: Amount in satoshis per payment
+    ///   - frequency: Payment frequency (daily, weekly, monthly, yearly)
+    ///   - description: Optional description
+    func sendSubscriptionProposal(
+        recipientPubkey: String,
+        amountSats: Int64,
+        frequency: String,
+        description: String?
+    ) async {
+        isSending = true
+        sendSuccess = false
+        sendError = nil
+        
+        guard PaykitKeyManager.shared.getCurrentPublicKeyZ32() != nil else {
+            sendError = "No identity configured"
+            isSending = false
+            return
+        }
+        
+        let proposal = SubscriptionProposal(
+            providerName: "",
+            providerPubkey: "", // Will be set by DirectoryService from our identity
+            amountSats: amountSats,
+            currency: "SAT",
+            frequency: frequency,
+            description: description ?? "",
+            methodId: "lightning"
+        )
+        
+        do {
+            try await directoryService.publishSubscriptionProposal(proposal, subscriberPubkey: recipientPubkey.trimmingCharacters(in: .whitespaces))
+            sendSuccess = true
+            isSending = false
+        } catch {
+            sendError = error.localizedDescription
+            isSending = false
+        }
+    }
+    
+    /// Clear the send error
+    func clearSendError() {
+        sendError = nil
+    }
+    
+    /// Reset send state after successful send
+    func resetSendState() {
+        sendSuccess = false
+        sendError = nil
     }
     
     // MARK: - Spending Limits

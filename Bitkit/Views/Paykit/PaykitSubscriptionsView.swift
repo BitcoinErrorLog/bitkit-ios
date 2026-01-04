@@ -31,14 +31,18 @@ struct PaykitSubscriptionsView: View {
                         Image(systemName: "plus")
                             .foregroundColor(.brandAccent)
                     }
+                    .accessibilityIdentifier("subscriptions_create_button")
                 )
             )
             
             // Tab Picker
             Picker("Tab", selection: $selectedTab) {
-                ForEach(SubscriptionTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
+                Text("Active").tag(SubscriptionTab.active)
+                    .accessibilityIdentifier("subscriptions_tab_active")
+                Text("Proposals").tag(SubscriptionTab.proposals)
+                    .accessibilityIdentifier("subscriptions_tab_proposals")
+                Text("History").tag(SubscriptionTab.history)
+                    .accessibilityIdentifier("subscriptions_tab_history")
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
@@ -363,6 +367,7 @@ struct ProposalCard: View {
                         .background(Color.redAccent.opacity(0.2))
                         .cornerRadius(8)
                 }
+                .accessibilityIdentifier("proposal_decline_\(proposal.id)")
                 
                 Button {
                     acceptProposal()
@@ -381,12 +386,14 @@ struct ProposalCard: View {
                     .background(Color.greenAccent)
                     .cornerRadius(8)
                 }
+                .accessibilityIdentifier("proposal_accept_\(proposal.id)")
                 .disabled(isAccepting)
             }
         }
         .padding(16)
         .background(Color.gray6)
         .cornerRadius(12)
+        .accessibilityIdentifier("proposal_row_\(proposal.id)")
     }
     
     private func acceptProposal() {
@@ -960,11 +967,9 @@ struct AddSubscriptionView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var app: AppViewModel
     
-    @State private var providerName = ""
-    @State private var providerPubkey = ""
-    @State private var amount: UInt64 = 1000
+    @State private var recipientPubkey = ""
+    @State private var amount: Int64 = 1000
     @State private var frequency = "monthly"
-    @State private var methodId = "lightning"
     @State private var description = ""
     
     var body: some View {
@@ -972,21 +977,17 @@ struct AddSubscriptionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
-                        BodyLText("Provider Information")
+                        BodyLText("Recipient")
                             .foregroundColor(.textPrimary)
                         
-                        TextField("Provider Name", text: $providerName)
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Color.gray6)
-                            .cornerRadius(8)
-                        
-                        TextField("Provider Public Key (z-base32)", text: $providerPubkey)
+                        TextField("Recipient Public Key (z-base32)", text: $recipientPubkey)
                             .foregroundColor(.white)
                             .autocapitalization(.none)
+                            .autocorrectionDisabled()
                             .padding(12)
                             .background(Color.gray6)
                             .cornerRadius(8)
+                            .accessibilityIdentifier("create_sub_recipient")
                     }
                     
                     VStack(alignment: .leading, spacing: 12) {
@@ -999,7 +1000,7 @@ struct AddSubscriptionView: View {
                             Spacer()
                             TextField("sats", text: Binding(
                                 get: { String(amount) },
-                                set: { amount = UInt64($0) ?? 0 }
+                                set: { amount = Int64($0) ?? 0 }
                             ))
                                 .foregroundColor(.white)
                                 .keyboardType(.numberPad)
@@ -1008,6 +1009,7 @@ struct AddSubscriptionView: View {
                                 .background(Color.gray6)
                                 .cornerRadius(8)
                                 .frame(width: 120)
+                                .accessibilityIdentifier("create_sub_amount")
                         }
                         
                         Picker("Frequency", selection: $frequency) {
@@ -1018,12 +1020,6 @@ struct AddSubscriptionView: View {
                         }
                         .pickerStyle(.segmented)
                         
-                        Picker("Payment Method", selection: $methodId) {
-                            Text("Lightning").tag("lightning")
-                            Text("On-Chain").tag("onchain")
-                        }
-                        .pickerStyle(.segmented)
-                        
                         TextField("Description (optional)", text: $description)
                             .foregroundColor(.white)
                             .padding(12)
@@ -1031,46 +1027,70 @@ struct AddSubscriptionView: View {
                             .cornerRadius(8)
                     }
                     
+                    // Error message
+                    if let error = viewModel.sendError {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.redAccent)
+                            BodySText(error)
+                                .foregroundColor(.redAccent)
+                        }
+                        .padding(12)
+                        .background(Color.redAccent.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    
                     Button {
-                        let subscription = BitkitSubscription(
-                            providerName: providerName,
-                            providerPubkey: providerPubkey,
-                            amountSats: amount,
-                            currency: "SAT",
-                            frequency: frequency,
-                            description: description,
-                            methodId: methodId
-                        )
-                        
-                        do {
-                            try viewModel.addSubscription(subscription)
-                            app.toast(type: .success, title: "Subscription created")
-                            dismiss()
-                        } catch {
-                            app.toast(error)
+                        Task {
+                            await viewModel.sendSubscriptionProposal(
+                                recipientPubkey: recipientPubkey,
+                                amountSats: amount,
+                                frequency: frequency,
+                                description: description.isEmpty ? nil : description
+                            )
                         }
                     } label: {
-                        BodyMText("Create Subscription")
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Color.brandAccent)
-                            .cornerRadius(8)
+                        HStack {
+                            if viewModel.isSending {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            }
+                            BodyMText("Send Proposal")
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(canSend ? Color.brandAccent : Color.gray5)
+                        .cornerRadius(8)
                     }
-                    .disabled(providerName.isEmpty || providerPubkey.isEmpty || amount <= 0)
+                    .disabled(!canSend)
+                    .accessibilityIdentifier("create_sub_send")
                 }
                 .padding(16)
             }
-            .navigationTitle("Add Subscription")
+            .navigationTitle("Create Subscription Proposal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
+                        viewModel.resetSendState()
                         dismiss()
                     }
                 }
             }
+            .onChange(of: viewModel.sendSuccess) { success in
+                if success {
+                    app.toast(type: .success, title: "Proposal sent!")
+                    viewModel.resetSendState()
+                    dismiss()
+                }
+            }
         }
+    }
+    
+    private var canSend: Bool {
+        !recipientPubkey.isEmpty && amount > 0 && !viewModel.isSending
     }
 }
 

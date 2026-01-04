@@ -20,6 +20,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>pubkyring</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Bitkit uses Face ID to securely authenticate access to your wallet and protect your Bitcoin.</string>
 	<key>UIAppFonts</key>
