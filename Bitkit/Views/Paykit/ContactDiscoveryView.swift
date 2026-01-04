@@ -15,6 +15,8 @@ struct ContactDiscoveryView: View {
     @State private var showingFilters = false
     @State private var selectedContact: DirectoryDiscoveredContact? = nil
     @State private var showingContactDetail = false
+    @State private var pubkeyToFollow = ""
+    @State private var isAddingFollow = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -43,6 +45,9 @@ struct ContactDiscoveryView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Directory Health Status
                     directoryHealthCard
+                    
+                    // Add Follow by Pubkey Section
+                    addFollowSection
                     
                     // Search Section
                     searchSection
@@ -157,6 +162,69 @@ struct ContactDiscoveryView: View {
         case "onchain": return "bitcoinsign.circle.fill"
         case "noise": return "antenna.radiowaves.left.and.right"
         default: return "creditcard.fill"
+        }
+    }
+    
+    private var addFollowSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BodyMBoldText("Add Follow by Pubkey")
+                .foregroundColor(.white)
+            
+            BodySText("Enter a pubkey to follow someone on Pubky. Contacts with published payment endpoints will appear here.")
+                .foregroundColor(.textSecondary)
+            
+            HStack(spacing: 12) {
+                TextField("Enter pubkey (z-base32)", text: $pubkeyToFollow)
+                    .foregroundColor(.white)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .padding(12)
+                    .background(Color.gray5)
+                    .cornerRadius(8)
+                
+                Button {
+                    addFollow()
+                } label: {
+                    if isAddingFollow {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "person.badge.plus")
+                            .foregroundColor(.white)
+                    }
+                }
+                .disabled(pubkeyToFollow.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAddingFollow)
+                .padding(12)
+                .background(pubkeyToFollow.isEmpty ? Color.gray5 : Color.brandAccent)
+                .cornerRadius(8)
+            }
+        }
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+    }
+    
+    private func addFollow() {
+        let trimmedPubkey = pubkeyToFollow.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPubkey.isEmpty else { return }
+        
+        isAddingFollow = true
+        
+        Task {
+            do {
+                try await DirectoryService.shared.addFollow(pubkey: trimmedPubkey)
+                await MainActor.run {
+                    app.toast(type: .success, title: "Follow added")
+                    pubkeyToFollow = ""
+                    isAddingFollow = false
+                    viewModel.refreshDiscovery()
+                }
+            } catch {
+                await MainActor.run {
+                    app.toast(error)
+                    isAddingFollow = false
+                }
+            }
         }
     }
     
@@ -323,17 +391,54 @@ struct DiscoveredContactRow: View {
                     .foregroundColor(contact.overallHealthColor)
             }
             
-            Button {
-                do {
-                    try viewModel.addContact(contact)
-                    app.toast(type: .success, title: "Contact added")
-                } catch {
-                    app.toast(error)
+            HStack(spacing: 8) {
+                // Follow button
+                Button {
+                    Task {
+                        do {
+                            try await DirectoryService.shared.addFollow(pubkey: contact.pubkey)
+                            app.toast(type: .success, title: "Followed")
+                            viewModel.refreshDiscovery()
+                        } catch {
+                            app.toast(error)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                        .foregroundColor(.brandAccent)
+                        .font(.title3)
                 }
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundColor(.brandAccent)
-                    .font(.title2)
+                
+                // Unfollow button
+                Button {
+                    Task {
+                        do {
+                            try await DirectoryService.shared.removeFollow(pubkey: contact.pubkey)
+                            app.toast(type: .warning, title: "Unfollowed")
+                            viewModel.refreshDiscovery()
+                        } catch {
+                            app.toast(error)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "person.badge.minus")
+                        .foregroundColor(.redAccent)
+                        .font(.title3)
+                }
+                
+                // Add to contacts button
+                Button {
+                    do {
+                        try viewModel.addContact(contact)
+                        app.toast(type: .success, title: "Contact added")
+                    } catch {
+                        app.toast(error)
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(.greenAccent)
+                        .font(.title2)
+                }
             }
         }
         .padding(16)
@@ -606,7 +711,9 @@ class ContactDiscoveryViewModel: ObservableObject {
     
     var directoryHealthColor: Color {
         if discoveredContacts.isEmpty { return .textSecondary }
-        let healthyPercent = Double(totalHealthyEndpoints) / Double(lightningEndpoints + onchainEndpoints + noiseEndpoints)
+        let total = lightningEndpoints + onchainEndpoints + noiseEndpoints
+        guard total > 0 else { return .textSecondary }
+        let healthyPercent = Double(totalHealthyEndpoints) / Double(total)
         if healthyPercent >= 0.8 { return .greenAccent }
         if healthyPercent >= 0.5 { return .orange }
         return .redAccent

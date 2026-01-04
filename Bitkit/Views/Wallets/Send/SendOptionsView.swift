@@ -4,12 +4,15 @@ import SwiftUI
 struct SendOptionsView: View {
     @EnvironmentObject var app: AppViewModel
     @EnvironmentObject var currency: CurrencyViewModel
+    @EnvironmentObject var navigation: NavigationViewModel
     @EnvironmentObject var scanner: ScannerManager
     @EnvironmentObject var settings: SettingsViewModel
     @EnvironmentObject var wallet: WalletViewModel
+    @EnvironmentObject var sheets: SheetViewModel
 
     @Binding var navigationPath: [SendRoute]
     @State private var selectedItem: PhotosPickerItem?
+    @State private var showingContactPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +76,23 @@ struct SendOptionsView: View {
                 settings: settings
             )
         }
+        .sheet(isPresented: $showingContactPicker) {
+            ContactPickerSheet(
+                onSelect: { contact in
+                    sheets.hideSheet()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NoisePaymentPrefill.shared.recipientPubkey = contact.publicKeyZ32
+                        navigation.navigate(.paykitNoisePayment)
+                    }
+                },
+                onNavigateToDiscovery: {
+                    sheets.hideSheet()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        navigation.navigate(.paykitContactDiscovery)
+                    }
+                }
+            )
+        }
     }
 
     func handlePaste() {
@@ -95,8 +115,21 @@ struct SendOptionsView: View {
     }
 
     func handleContact() {
-        // TODO: implement contacts
-        // navigationPath.append(.contact)
+        showingContactPicker = true
+    }
+}
+
+/// Shared prefill storage for noise payment navigation
+class NoisePaymentPrefill {
+    static let shared = NoisePaymentPrefill()
+    var recipientPubkey: String?
+    
+    private init() {}
+    
+    func consume() -> String? {
+        let value = recipientPubkey
+        recipientPubkey = nil
+        return value
     }
 }
 
@@ -108,7 +141,12 @@ struct SendOptionsView: View {
                 NavigationStack {
                     SendOptionsView(navigationPath: .constant([]))
                         .environmentObject(AppViewModel())
+                        .environmentObject(CurrencyViewModel())
+                        .environmentObject(NavigationViewModel())
+                        .environmentObject(ScannerManager())
+                        .environmentObject(SettingsViewModel.shared)
                         .environmentObject(WalletViewModel())
+                        .environmentObject(SheetViewModel())
                 }
                 .presentationDetents([.height(UIScreen.screenHeight - 120)])
             }

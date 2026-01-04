@@ -98,12 +98,18 @@ public class ContactStorage {
         try persistContacts([])
     }
     
-    /// Import contacts (merge with existing)
+    /// Import contacts (upsert: update existing, insert new, preserve local-only fields)
     public func importContacts(_ newContacts: [Contact]) throws {
         var contacts = listContacts()
         
         for newContact in newContacts {
-            if !contacts.contains(where: { $0.id == newContact.id }) {
+            if let index = contacts.firstIndex(where: { $0.id == newContact.id }) {
+                // Upsert: update existing, preserving local-only fields
+                var merged = newContact
+                merged.lastPaymentAt = contacts[index].lastPaymentAt
+                merged.paymentCount = contacts[index].paymentCount
+                contacts[index] = merged
+            } else {
                 contacts.append(newContact)
             }
         }

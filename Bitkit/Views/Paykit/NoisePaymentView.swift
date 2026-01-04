@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct NoisePaymentView: View {
+    var prefillRecipient: String? = nil
+    
     @StateObject private var viewModel = NoisePaymentViewModel()
     @EnvironmentObject private var app: AppViewModel
     @EnvironmentObject private var navigation: NavigationViewModel
@@ -50,11 +52,21 @@ struct NoisePaymentView: View {
         .navigationBarHidden(true)
         .onAppear {
             viewModel.checkSessionStatus()
+            
+            // Apply prefill from parameter or shared prefill storage
+            if let prefill = prefillRecipient ?? NoisePaymentPrefill.shared.consume() {
+                recipientPubkey = prefill
+            }
         }
         .sheet(isPresented: $showingContactPicker) {
-            ContactPickerSheet { contact in
-                recipientPubkey = contact.publicKeyZ32
-            }
+            ContactPickerSheet(
+                onSelect: { contact in
+                    recipientPubkey = contact.publicKeyZ32
+                },
+                onNavigateToDiscovery: {
+                    navigation.navigate(.paykitContactDiscovery)
+                }
+            )
         }
         .sheet(isPresented: $showingPubkyRingAuth) {
             PubkyRingAuthView { session in
@@ -517,39 +529,83 @@ struct NoisePaymentView: View {
 
 struct ContactPickerSheet: View {
     let onSelect: (Contact) -> Void
+    var onNavigateToDiscovery: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @StateObject private var contactsVM = ContactsViewModel()
     @State private var searchText = ""
     
     var body: some View {
         NavigationView {
-            List {
-                ForEach(filteredContacts) { contact in
-                    Button {
-                        onSelect(contact)
-                        dismiss()
-                    } label: {
-                        HStack {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.brandAccent.opacity(0.2))
-                                    .frame(width: 40, height: 40)
-                                
-                                Text(String(contact.name.prefix(1)).uppercased())
-                                    .foregroundColor(.brandAccent)
+            VStack(spacing: 0) {
+                if contactsVM.isLoading {
+                    Spacer()
+                    ProgressView()
+                        .tint(.brandAccent)
+                    Spacer()
+                } else if filteredContacts.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 48))
+                            .foregroundColor(.textSecondary)
+                        
+                        Text("No contacts")
+                            .foregroundColor(.textSecondary)
+                        
+                        if let onNavigate = onNavigateToDiscovery {
+                            Button {
+                                dismiss()
+                                onNavigate()
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.badge.plus")
+                                    Text("Discover Contacts")
+                                }
+                                .foregroundColor(.brandAccent)
                             }
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(contact.name)
-                                    .foregroundColor(.white)
-                                Text(contact.publicKeyZ32.prefix(16) + "...")
-                                    .font(.caption)
-                                    .foregroundColor(.textSecondary)
+                        }
+                        
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List {
+                        ForEach(filteredContacts) { contact in
+                            Button {
+                                onSelect(contact)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.brandAccent.opacity(0.2))
+                                            .frame(width: 40, height: 40)
+                                        
+                                        Text(String((contact.name.isEmpty ? contact.publicKeyZ32 : contact.name).prefix(1)).uppercased())
+                                            .foregroundColor(.brandAccent)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(contact.name.isEmpty ? "Unknown" : contact.name)
+                                            .foregroundColor(.white)
+                                        Text(contact.abbreviatedKey)
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    if contact.paymentCount > 0 {
+                                        Text("\(contact.paymentCount) payments")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                }
                             }
-                            
-                            Spacer()
                         }
                     }
+                    .listStyle(.plain)
                 }
             }
             .searchable(text: $searchText, prompt: "Search contacts")
@@ -561,9 +617,27 @@ struct ContactPickerSheet: View {
                         dismiss()
                     }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 16) {
+                        Button {
+                            contactsVM.loadContacts()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        
+                        if let onNavigate = onNavigateToDiscovery {
+                            Button {
+                                dismiss()
+                                onNavigate()
+                            } label: {
+                                Image(systemName: "person.badge.plus")
+                            }
+                        }
+                    }
+                }
             }
         }
-        .onAppear {
+        .task {
             contactsVM.loadContacts()
         }
     }

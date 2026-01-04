@@ -49,6 +49,10 @@ public final class DirectoryService {
     private var authenticatedAdapter: PubkyAuthenticatedStorageAdapter?
     private var homeserverBaseURL: String?
     
+    /// Cached profile for the current user (populated by prefetchProfile)
+    private var cachedProfile: PubkyProfile?
+    private var cachedProfilePubkey: String?
+    
     private init() {
         // Create directory operations manager
         directoryOps = try? DirectoryOperationsAsync()
@@ -103,6 +107,9 @@ public final class DirectoryService {
     
     /// Configure transport using a Pubky session from Pubky-ring
     public func configureWithPubkySession(_ session: PubkyRingSession) {
+        // Clear cached profile when session changes
+        clearProfileCache()
+        
         // Use session's homeserver URL if provided, otherwise fall back to default
         homeserverBaseURL = session.homeserverURL ?? PubkyConfig.homeserverBaseURL()
         
@@ -124,6 +131,11 @@ public final class DirectoryService {
         unauthenticatedTransport = UnauthenticatedTransportFfi.fromCallback(callback: unauthAdapter)
         
         Logger.info("Configured DirectoryService with Pubky session for \(session.pubkey) on \(homeserverBaseURL ?? "default")", context: "DirectoryService")
+        
+        // Pre-fetch profile after session is configured
+        Task {
+            await prefetchProfile()
+        }
     }
     
     /// Discover noise endpoints for a recipient.
@@ -366,6 +378,50 @@ public final class DirectoryService {
         }
     }
     
+    /// Pre-fetch and cache the current user's profile after session configuration
+    public func prefetchProfile() async {
+        guard let ownerPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            Logger.debug("Cannot prefetch profile: no current pubkey", context: "DirectoryService")
+            return
+        }
+        
+        do {
+            if let profile = try await fetchProfile(for: ownerPubkey) {
+                cachedProfile = profile
+                cachedProfilePubkey = ownerPubkey
+                Logger.info("Prefetched profile for \(ownerPubkey.prefix(12))...: \(profile.name ?? "unnamed")", context: "DirectoryService")
+            }
+        } catch {
+            Logger.debug("Failed to prefetch profile: \(error)", context: "DirectoryService")
+        }
+    }
+    
+    /// Get profile from cache if available, otherwise fetch from network
+    public func getOrFetchProfile(pubkey: String) async throws -> PubkyProfile? {
+        // Return cached profile if it matches the requested pubkey
+        if let cached = cachedProfile, cachedProfilePubkey == pubkey {
+            Logger.debug("Returning cached profile for \(pubkey.prefix(12))...", context: "DirectoryService")
+            return cached
+        }
+        
+        // Fetch from network
+        let profile = try await fetchProfile(for: pubkey)
+        
+        // Cache if it's for the current user
+        if pubkey == PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
+            cachedProfile = profile
+            cachedProfilePubkey = pubkey
+        }
+        
+        return profile
+    }
+    
+    /// Clear the cached profile (call when session changes)
+    public func clearProfileCache() {
+        cachedProfile = nil
+        cachedProfilePubkey = nil
+    }
+    
     /// Publish profile to Pubky directory
     public func publishProfile(_ profile: PubkyProfile) async throws {
         guard let adapter = authenticatedAdapter else {
@@ -459,6 +515,7 @@ public final class DirectoryService {
     }
     
     /// Discover contacts from Pubky follows directory
+    /// Fetches profiles for each followed pubkey to populate names
     public func discoverContactsFromFollows() async throws -> [DirectoryDiscoveredContact] {
         guard let ownerPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
             return []
@@ -475,18 +532,35 @@ public final class DirectoryService {
         var discovered: [DirectoryDiscoveredContact] = []
         
         for followPubkey in followsList {
-            // Check if this follow has payment methods
-            let paymentMethods = try await discoverPaymentMethods(for: followPubkey)
-            if !paymentMethods.isEmpty {
-                discovered.append(
-                    DirectoryDiscoveredContact(
-                        pubkey: followPubkey,
-                        name: nil, // Could fetch from Pubky profile
-                        hasPaymentMethods: true,
-                        supportedMethods: paymentMethods.map { $0.methodId }
-                    )
-                )
+            // Fetch profile for this follow to get their name
+            var profileName: String?
+            do {
+                if let profile = try await fetchProfile(for: followPubkey) {
+                    profileName = profile.name
+                }
+            } catch {
+                Logger.debug("Failed to fetch profile for follow \(followPubkey.prefix(12))...: \(error)", context: "DirectoryService")
             }
+            
+            // Check if this follow has payment methods
+            var paymentMethods: [PaymentMethod] = []
+            var hasPaymentMethods = false
+            do {
+                paymentMethods = try await discoverPaymentMethods(for: followPubkey)
+                hasPaymentMethods = !paymentMethods.isEmpty
+            } catch {
+                Logger.debug("Failed to discover payment methods for \(followPubkey.prefix(12))...: \(error)", context: "DirectoryService")
+            }
+            
+            // Include all follows, not just those with payment methods
+            discovered.append(
+                DirectoryDiscoveredContact(
+                    pubkey: followPubkey,
+                    name: profileName,
+                    hasPaymentMethods: hasPaymentMethods,
+                    supportedMethods: paymentMethods.map { $0.methodId }
+                )
+            )
         }
         
         return discovered

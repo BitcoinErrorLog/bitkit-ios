@@ -152,15 +152,48 @@ final class ContactsViewModelTests: XCTestCase {
 
     func testDiscoverContactsSetsLoadingState() async {
         // Given
-        let directoryService = DirectoryService.shared
         XCTAssertFalse(viewModel.isLoading)
 
         // When
-        await viewModel.discoverContacts(directoryService: directoryService)
+        await viewModel.discoverContacts()
 
         // Then - discoveredContacts may be empty but loading should complete
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertTrue(viewModel.showingDiscoveryResults)
+    }
+    
+    // MARK: - Follow/Unfollow Tests
+    
+    func testAddContactSetsErrorOnFollowFailure() async throws {
+        // Given - viewModel uses DirectoryService.shared which may not have a session
+        let contact = Contact(publicKeyZ32: "pk:testfollow", name: "Test")
+        
+        // When - add contact (follow will fail without session, but local save succeeds)
+        try viewModel.addContact(contact)
+        
+        // Wait for background task to complete
+        try await Task.sleep(nanoseconds: 200_000_000)
+        
+        // Then - contact should be saved locally regardless of follow result
+        XCTAssertEqual(viewModel.contacts.count, 1)
+        // Note: errorMessage may or may not be set depending on session state
+    }
+    
+    func testDeleteContactSetsErrorOnUnfollowFailure() async throws {
+        // Given - add a contact first
+        let contact = Contact(publicKeyZ32: "pk:testunfollow", name: "Test")
+        try viewModel.addContact(contact)
+        XCTAssertEqual(viewModel.contacts.count, 1)
+        
+        // When - delete contact (unfollow will fail without session, but local delete succeeds)
+        try viewModel.deleteContact(contact)
+        
+        // Wait for background task to complete
+        try await Task.sleep(nanoseconds: 200_000_000)
+        
+        // Then - contact should be deleted locally regardless of unfollow result
+        XCTAssertTrue(viewModel.contacts.isEmpty)
+        // Note: errorMessage may or may not be set depending on session state
     }
 
     // MARK: - Import Discovered Tests

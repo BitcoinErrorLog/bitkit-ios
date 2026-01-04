@@ -428,7 +428,7 @@ final class PaykitE2ETests: XCTestCase {
         navigateToPaykitContacts()
         
         // Tap discover contacts
-        let discoverButton = app.buttons["Discover Contacts"]
+        let discoverButton = app.buttons["DiscoverContacts"]
         XCTAssertTrue(discoverButton.waitForExistence(timeout: 5))
         discoverButton.tap()
         
@@ -442,7 +442,7 @@ final class PaykitE2ETests: XCTestCase {
         }
         
         // Check if any contacts were found
-        let noContactsMessage = app.staticTexts["No contacts found"]
+        let noContactsMessage = app.staticTexts["No contacts"]
         let contactCell = app.cells.firstMatch
         
         // Either contacts are found or "no contacts" message is shown
@@ -786,7 +786,7 @@ final class PaykitE2ETests: XCTestCase {
         orchestrator.navigateToContacts()
         
         // Trigger sync
-        let syncButton = app.buttons["Sync Contacts"]
+        let syncButton = app.buttons["RefreshContacts"]
         if syncButton.waitForExistence(timeout: 5) {
             syncButton.tap()
         }
@@ -796,7 +796,7 @@ final class PaykitE2ETests: XCTestCase {
         orchestrator.waitForLoadingToComplete()
         
         // Either contacts are shown or empty state - both are valid
-        let noContactsMessage = app.staticTexts["No contacts found"]
+        let noContactsMessage = app.staticTexts["No contacts"]
         let contactsList = app.tables.firstMatch
         
         XCTAssertTrue(
@@ -818,7 +818,7 @@ final class PaykitE2ETests: XCTestCase {
         orchestrator.navigateToContacts()
         
         // Add follow
-        let addButton = app.buttons["Add Contact"]
+        let addButton = app.buttons["AddContact"]
         XCTAssertTrue(addButton.waitForExistence(timeout: 5))
         addButton.tap()
         

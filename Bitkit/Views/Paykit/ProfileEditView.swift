@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 struct ProfileEditView: View {
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +19,9 @@ struct ProfileEditView: View {
     @State private var name: String = ""
     @State private var bio: String = ""
     @State private var links: [EditableLink] = []
+    @State private var avatarUrl: String?
+    @State private var selectedImage: UIImage?
+    @State private var selectedPhotoItem: PhotosPickerItem?
     
     // Original profile for comparison
     @State private var originalProfile: PubkyProfile?
@@ -26,12 +30,24 @@ struct ProfileEditView: View {
         VStack(alignment: .leading, spacing: 0) {
             NavigationBar(
                 title: "Edit Profile",
-                action: hasChanges ? AnyView(
-                    Button("Save") {
-                        Task { await saveProfile() }
+                action: AnyView(
+                    HStack(spacing: 16) {
+                        Button {
+                            Task { await loadCurrentProfile(forceRefresh: true) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundColor(isLoading ? .textSecondary : .white)
+                        }
+                        .disabled(isLoading)
+                        
+                        if hasChanges {
+                            Button("Save") {
+                                Task { await saveProfile() }
+                            }
+                            .foregroundColor(.brandAccent)
+                        }
                     }
-                    .foregroundColor(.brandAccent)
-                ) : nil,
+                ),
                 onBack: { dismiss() }
             )
             
@@ -161,22 +177,51 @@ struct ProfileEditView: View {
         HStack {
             Spacer()
             VStack(spacing: 8) {
-                Circle()
-                    .fill(Color.brandAccent.opacity(0.2))
-                    .frame(width: 80, height: 80)
-                    .overlay {
-                        if !name.isEmpty {
-                            Text(String(name.prefix(1)).uppercased())
-                                .font(.title)
-                                .foregroundColor(.brandAccent)
-                        } else {
-                            Image(systemName: "person.fill")
-                                .font(.title)
-                                .foregroundColor(.brandAccent)
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    ZStack(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(Color.brandAccent.opacity(0.2))
+                            .frame(width: 100, height: 100)
+                            .overlay {
+                                if let image = selectedImage {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .clipShape(Circle())
+                                } else if !name.isEmpty {
+                                    Text(String(name.prefix(1)).uppercased())
+                                        .font(.largeTitle)
+                                        .foregroundColor(.brandAccent)
+                                } else {
+                                    Image(systemName: "person.fill")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.brandAccent)
+                                }
+                            }
+                            .clipShape(Circle())
+                        
+                        Circle()
+                            .fill(Color.brandAccent)
+                            .frame(width: 32, height: 32)
+                            .overlay {
+                                Image(systemName: "camera.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                            }
+                    }
+                }
+                .onChange(of: selectedPhotoItem) { newItem in
+                    Task {
+                        if let data = try? await newItem?.loadTransferable(type: Data.self),
+                           let uiImage = UIImage(data: data) {
+                            await MainActor.run {
+                                selectedImage = uiImage
+                            }
                         }
                     }
+                }
                 
-                Text("Tap to change avatar")
+                Text("Tap to change photo")
                     .font(.caption)
                     .foregroundColor(.textSecondary)
             }
@@ -251,10 +296,12 @@ struct ProfileEditView: View {
     // MARK: - Computed Properties
     
     private var currentProfile: PubkyProfile {
+        // Note: For production, you'd upload the selected image and get back a URL
+        // For now, we preserve the existing avatar URL
         PubkyProfile(
             name: name.isEmpty ? nil : name,
             bio: bio.isEmpty ? nil : bio,
-            avatar: nil,
+            avatar: avatarUrl,
             links: links.isEmpty ? nil : links.filter { !$0.title.isEmpty && !$0.url.isEmpty }.map {
                 PubkyProfileLink(title: $0.title, url: $0.url)
             }
@@ -262,6 +309,11 @@ struct ProfileEditView: View {
     }
     
     private var hasChanges: Bool {
+        // If a new image was selected, there are changes
+        if selectedImage != nil {
+            return true
+        }
+        
         guard let original = originalProfile else {
             return !name.isEmpty || !bio.isEmpty || !links.isEmpty
         }
@@ -276,7 +328,7 @@ struct ProfileEditView: View {
     
     // MARK: - Actions
     
-    private func loadCurrentProfile() async {
+    private func loadCurrentProfile(forceRefresh: Bool = false) async {
         isLoading = true
         errorMessage = nil
         
@@ -288,14 +340,28 @@ struct ProfileEditView: View {
         }
         
         do {
-            if let profile = try await DirectoryService.shared.fetchProfile(for: pubkey) {
+            // If force refresh, fetch directly from network; otherwise use cache
+            let profile: PubkyProfile?
+            if forceRefresh {
+                profile = try await DirectoryService.shared.fetchProfile(for: pubkey)
+            } else {
+                profile = try await DirectoryService.shared.getOrFetchProfile(pubkey: pubkey)
+            }
+            
+            if let profile = profile {
                 await MainActor.run {
                     self.originalProfile = profile
                     self.name = profile.name ?? ""
                     self.bio = profile.bio ?? ""
+                    self.avatarUrl = profile.avatar
                     self.links = profile.links?.map {
                         EditableLink(title: $0.title, url: $0.url)
                     } ?? []
+                    // Clear selected image on refresh to show current server state
+                    if forceRefresh {
+                        self.selectedImage = nil
+                        self.selectedPhotoItem = nil
+                    }
                     self.isLoading = false
                 }
             } else {

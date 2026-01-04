@@ -9,11 +9,42 @@ import SwiftUI
 
 struct PaykitContactsView: View {
     @StateObject private var viewModel = ContactsViewModel()
+    @EnvironmentObject private var app: AppViewModel
+    @EnvironmentObject private var navigation: NavigationViewModel
     @State private var showingAddContact = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            NavigationBar(title: "Contacts")
+            NavigationBar(
+                title: "Contacts",
+                action: AnyView(
+                    HStack(spacing: 16) {
+                        Button {
+                            viewModel.loadContacts()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundColor(.brandAccent)
+                        }
+                        .accessibilityIdentifier("RefreshContacts")
+                        
+                        Button {
+                            showingAddContact = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .foregroundColor(.brandAccent)
+                        }
+                        .accessibilityIdentifier("AddContact")
+                        
+                        Button {
+                            navigation.navigate(.paykitContactDiscovery)
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                                .foregroundColor(.brandAccent)
+                        }
+                        .accessibilityIdentifier("DiscoverContacts")
+                    }
+                )
+            )
             
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -32,16 +63,47 @@ struct PaykitContactsView: View {
                     .background(Color.gray6)
                     .cornerRadius(8)
                     
-                    // Contact list
-                    if viewModel.contacts.isEmpty {
-                        EmptyStateView(
-                            type: .home,
-                            onClose: nil
-                        )
+                    // Loading indicator
+                    if viewModel.isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .tint(.brandAccent)
+                            Spacer()
+                        }
+                        .padding(.vertical, 32)
+                    } else if viewModel.contacts.isEmpty {
+                        // Empty state
+                        VStack(spacing: 16) {
+                            Image(systemName: "person.2.slash")
+                                .font(.system(size: 48))
+                                .foregroundColor(.textSecondary)
+                            
+                            BodyMText("No contacts")
+                                .foregroundColor(.textSecondary)
+                            
+                            Button {
+                                navigation.navigate(.paykitContactDiscovery)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.badge.plus")
+                                    Text("Add a follow on Pubky")
+                                }
+                                .foregroundColor(.brandAccent)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
                     } else {
+                        // Contact list
                         VStack(spacing: 0) {
                             ForEach(viewModel.contacts) { contact in
-                                ContactRow(contact: contact)
+                                Button {
+                                    navigation.navigate(.paykitContactDetail(contact.id))
+                                } label: {
+                                    ContactRow(contact: contact)
+                                }
+                                .buttonStyle(.plain)
                                 
                                 if contact.id != viewModel.contacts.last?.id {
                                     Divider()
@@ -58,21 +120,17 @@ struct PaykitContactsView: View {
             }
         }
         .navigationBarHidden(true)
-        .onAppear {
+        .task {
             viewModel.loadContacts()
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingAddContact = true
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(.brandAccent)
-                }
-            }
         }
         .sheet(isPresented: $showingAddContact) {
             AddContactView(viewModel: viewModel)
+        }
+        .onChange(of: viewModel.errorMessage) { error in
+            if let error = error {
+                app.toast(type: .error, title: "Sync Error", description: error)
+                viewModel.clearError()
+            }
         }
     }
 }
@@ -86,13 +144,13 @@ struct ContactRow: View {
                 .fill(Color.brandAccent.opacity(0.2))
                 .frame(width: 40, height: 40)
                 .overlay {
-                    Text(String(contact.name.prefix(1)).uppercased())
+                    Text(String(contact.name.isEmpty ? contact.publicKeyZ32.prefix(1) : contact.name.prefix(1)).uppercased())
                         .foregroundColor(.brandAccent)
                         .font(.headline)
                 }
             
             VStack(alignment: .leading, spacing: 4) {
-                BodyMText(contact.name)
+                BodyMText(contact.name.isEmpty ? "Unknown" : contact.name)
                     .foregroundColor(.white)
                 
                 BodySText(contact.abbreviatedKey)
@@ -137,6 +195,7 @@ struct AddContactView: View {
                 Section("Contact Information") {
                     TextField("Name", text: $name)
                     TextField("Public Key (z-base32)", text: $publicKey)
+                        .autocapitalization(.none)
                     TextField("Notes (optional)", text: $notes)
                 }
             }
@@ -151,15 +210,15 @@ struct AddContactView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         let contact = Contact(
-                            publicKeyZ32: publicKey,
-                            name: name,
-                            notes: notes.isEmpty ? nil : notes
+                            publicKeyZ32: publicKey.trimmingCharacters(in: .whitespacesAndNewlines),
+                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            notes: notes.isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
                         )
                         do {
                             try viewModel.addContact(contact)
                             dismiss()
                         } catch {
-                            // Handle error
+                            viewModel.errorMessage = error.localizedDescription
                         }
                     }
                     .disabled(name.isEmpty || publicKey.isEmpty)
@@ -168,4 +227,3 @@ struct AddContactView: View {
         }
     }
 }
-

@@ -399,6 +399,7 @@ struct MainNavView: View {
             case .paykitDashboard: PaykitDashboardView()
             case .paykitProfileEdit: ProfileEditView()
             case .paykitContacts: PaykitContactsView()
+            case let .paykitContactDetail(contactId): ContactDetailView(contactId: contactId, viewModel: ContactsViewModel())
             case .paykitContactDiscovery: ContactDiscoveryView()
             case .paykitReceipts: PaykitReceiptsView()
             case .paykitReceiptDetail(let receiptId): ReceiptDetailLookupView(receiptId: receiptId)
