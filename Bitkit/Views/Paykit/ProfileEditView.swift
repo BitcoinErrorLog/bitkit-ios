@@ -14,6 +14,7 @@ struct ProfileEditView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var showDisconnectAlert = false
     
     // Profile fields
     @State private var name: String = ""
@@ -157,6 +158,9 @@ struct ProfileEditView: View {
                         .disabled(!hasChanges || isSaving)
                         .padding(.horizontal, 16)
                         
+                        // Disconnect section
+                        disconnectSection
+                        
                         Spacer(minLength: 32)
                     }
                     .padding(.top, 16)
@@ -168,6 +172,14 @@ struct ProfileEditView: View {
             Task {
                 await loadCurrentProfile()
             }
+        }
+        .alert("Disconnect from Pubky", isPresented: $showDisconnectAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Disconnect", role: .destructive) {
+                performDisconnect()
+            }
+        } message: {
+            Text("This will clear your profile and session data. You'll need to reconnect with Pubky Ring to use Paykit features again.")
         }
     }
     
@@ -288,9 +300,50 @@ struct ProfileEditView: View {
                 .foregroundColor(.textSecondary)
                 .padding(.horizontal, 16)
             
-            ProfilePreviewCard(profile: currentProfile)
+            ProfilePreviewCard(profile: currentProfile, selectedImage: selectedImage)
                 .padding(.horizontal, 16)
         }
+    }
+    
+    private var disconnectSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .background(Color.gray5)
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                BodySText("Connection")
+                    .foregroundColor(.textSecondary)
+                
+                if let pubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
+                    BodySText("Connected: \(String(pubkey.prefix(16)))...")
+                        .foregroundColor(.textSecondary)
+                        .font(.caption)
+                }
+            }
+            .padding(.horizontal, 16)
+            
+            Button {
+                showDisconnectAlert = true
+            } label: {
+                HStack {
+                    Image(systemName: "link.badge.xmark")
+                    Text("Disconnect from Pubky")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.gray6)
+                .foregroundColor(.red)
+                .cornerRadius(8)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+    
+    private func performDisconnect() {
+        PaykitManager.shared.disconnect()
+        dismiss()
     }
     
     // MARK: - Computed Properties
@@ -383,9 +436,30 @@ struct ProfileEditView: View {
         successMessage = nil
         
         do {
-            try await DirectoryService.shared.publishProfile(currentProfile)
+            // Upload image if user selected a new one
+            var imageUrl = avatarUrl
+            if let image = selectedImage {
+                guard let pubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+                    throw ImageUploadError.notAuthenticated
+                }
+                imageUrl = try await ImageUploadService.shared.uploadProfileImage(image, ownerPubkey: pubkey)
+            }
+            
+            // Build profile with the (potentially new) image URL
+            let profileToPublish = PubkyProfile(
+                name: name.isEmpty ? nil : name,
+                bio: bio.isEmpty ? nil : bio,
+                avatar: imageUrl,
+                links: links.isEmpty ? nil : links.filter { !$0.title.isEmpty && !$0.url.isEmpty }.map {
+                    PubkyProfileLink(title: $0.title, url: $0.url)
+                }
+            )
+            
+            try await DirectoryService.shared.publishProfile(profileToPublish)
             await MainActor.run {
-                self.originalProfile = self.currentProfile
+                self.avatarUrl = imageUrl
+                self.selectedImage = nil  // Clear local image since it's now on server
+                self.originalProfile = profileToPublish
                 self.successMessage = "Profile published successfully!"
                 self.isSaving = false
             }

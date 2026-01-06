@@ -213,12 +213,12 @@ public final class PaykitPollingService {
         }
         
         // Get list of known peers (follows) to poll
-        let knownPeers: [String]
+        var knownPeers: [String] = []
         do {
             knownPeers = try await directoryService.fetchFollows()
+            Logger.info("PaykitPollingService: Found \(knownPeers.count) follows to poll: \(knownPeers.map { String($0.prefix(12)) })", context: "PaykitPollingService")
         } catch {
             Logger.error("PaykitPollingService: Failed to fetch follows for peer polling: \(error)", context: "PaykitPollingService")
-            knownPeers = []
         }
         
         // Poll each peer's storage for requests/proposals addressed to us
@@ -304,7 +304,7 @@ public final class PaykitPollingService {
     }
     
     private func handleSubscriptionProposal(_ request: DiscoveredRequest) async {
-        let storage = SubscriptionStorage()
+        let storage = SubscriptionStorage.shared
         
         // Check if already seen (prevents duplicate notifications across restarts)
         if storage.hasSeenProposal(id: request.requestId) {

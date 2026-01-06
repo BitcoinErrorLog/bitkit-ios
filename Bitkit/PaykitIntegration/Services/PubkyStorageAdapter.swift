@@ -121,23 +121,28 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     public init(homeserverBaseURL: String? = nil) {
         self.homeserverBaseURL = homeserverBaseURL
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForRequest = 60  // Increased timeout
+        config.timeoutIntervalForResource = 120
         self.session = URLSession(configuration: config)
     }
     
     public func get(ownerPubkey: String, path: String) -> StorageGetResult {
         let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
-        let urlString = "\(baseURL)/pubky\(ownerPubkey)\(path)"
+        // URL format: {baseURL}{path} with pubky-host header for routing
+        let urlString = "\(baseURL)\(path)"
         
         guard let url = URL(string: urlString) else {
             return StorageGetResult(success: false, content: nil, error: "Invalid URL")
         }
         
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        
         var result: StorageGetResult?
         let semaphore = DispatchSemaphore(value: 0)
         
-        let task = session.dataTask(with: url) { data, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             
             if let error = error {
@@ -169,16 +174,27 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
     
     public func list(ownerPubkey: String, prefix: String) -> StorageListResult {
         let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
-        let urlString = "\(baseURL)/pubky\(ownerPubkey)\(prefix)?shallow=true"
+        // URL format: {baseURL}{prefix}?shallow=true with pubky-host header for routing
+        let urlString = "\(baseURL)\(prefix)?shallow=true"
+        
+        Logger.info("LIST request:", context: "PubkyStorageAdapter")
+        Logger.info("  - baseURL: \(baseURL)", context: "PubkyStorageAdapter")
+        Logger.info("  - prefix: \(prefix)", context: "PubkyStorageAdapter")
+        Logger.info("  - full URL: \(urlString)", context: "PubkyStorageAdapter")
+        Logger.info("  - pubky-host header: \(ownerPubkey)", context: "PubkyStorageAdapter")
         
         guard let url = URL(string: urlString) else {
             return StorageListResult(success: false, entries: [], error: "Invalid URL")
         }
         
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        
         var result: StorageListResult?
         let semaphore = DispatchSemaphore(value: 0)
         
-        let task = session.dataTask(with: url) { data, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             
             if let error = error {
@@ -193,25 +209,32 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
             
             switch httpResponse.statusCode {
             case 404:
+                Logger.info("LIST response: 404 - directory not found (this means no proposals at this path)", context: "PubkyStorageAdapter")
                 result = StorageListResult(success: true, entries: [], error: nil)
             case 200...299:
-                guard let data = data, let jsonString = String(data: data, encoding: .utf8) else {
+                guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
+                    Logger.debug("LIST response: 2xx but no data", context: "PubkyStorageAdapter")
                     result = StorageListResult(success: true, entries: [], error: nil)
                     return
                 }
                 
-                // Parse JSON array
-                if let jsonData = jsonString.data(using: .utf8),
-                   let jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
-                    let entries = jsonArray.compactMap { $0["path"] as? String }
-                    result = StorageListResult(success: true, entries: entries, error: nil)
-                } else if let jsonData = jsonString.data(using: .utf8),
-                          let jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
-                    result = StorageListResult(success: true, entries: jsonArray, error: nil)
-                } else {
-                    result = StorageListResult(success: false, entries: [], error: "Failed to parse response")
+                Logger.debug("LIST raw (\(responseString.count) chars): \(responseString.prefix(300))", context: "PubkyStorageAdapter")
+                
+                // Homeserver returns newline-separated pubky:// URIs
+                // Extract just the final path component (the pubkey or file ID)
+                let lines = responseString.components(separatedBy: .newlines)
+                    .filter { !$0.isEmpty }
+                
+                let entries = lines.compactMap { uri -> String? in
+                    // Parse pubky://owner/pub/path/to/item to extract just "item"
+                    guard let url = URL(string: uri) else { return nil }
+                    return url.lastPathComponent
                 }
+                
+                Logger.debug("LIST extracted \(entries.count) entries: \(entries.prefix(5))...", context: "PubkyStorageAdapter")
+                result = StorageListResult(success: true, entries: entries, error: nil)
             default:
+                Logger.debug("LIST response: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
                 result = StorageListResult(success: false, entries: [], error: "HTTP \(httpResponse.statusCode)")
             }
         }
@@ -238,10 +261,16 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         self.sessionSecret = sessionSecret
         self.ownerPubkey = ownerPubkey
         self.homeserverBaseURL = homeserverBaseURL
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
-        config.httpCookieStorage = HTTPCookieStorage.shared
+        // Use ephemeral config to avoid any cached QUIC state
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
+        config.httpCookieStorage = nil  // We set cookies manually in headers
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // Force single connection per host
+        config.httpMaximumConnectionsPerHost = 1
+        // Disable HTTP/3 multiplexing and connection coalescing which can cause QUIC issues
+        config.multipathServiceType = .none
         self.session = URLSession(configuration: config)
     }
     
@@ -280,6 +309,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
             Logger.debug("Added pubky-host header for owner: \(String(ownerPubkey.prefix(12)))...", context: "PubkyStorageAdapter")
         }
         request.httpBody = content.data(using: .utf8)
+        // Disable HTTP/3 (QUIC) to avoid connectivity issues on some networks/simulators
+        if #available(iOS 17.0, *) {
+            request.assumesHTTP3Capable = false
+        }
         
         var result: StorageOperationResult?
         let semaphore = DispatchSemaphore(value: 0)
@@ -309,7 +342,74 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         }
         
         task.resume()
-        semaphore.wait()
+        let waitResult = semaphore.wait(timeout: .now() + 60)  // 60 second timeout
+        if waitResult == .timedOut {
+            task.cancel()
+            Logger.error("PUT timed out for path: \(path)", context: "PubkyStorageAdapter")
+            return StorageOperationResult(success: false, error: "Request timed out")
+        }
+        
+        return result ?? StorageOperationResult(success: false, error: "Unknown error")
+    }
+    
+    /// PUT binary data (for blob uploads like images)
+    public func putData(path: String, data: Data, contentType: String) -> StorageOperationResult {
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(path)"
+        
+        Logger.debug("PUT binary data to: \(urlString) (\(data.count) bytes)", context: "PubkyStorageAdapter")
+        
+        guard let url = URL(string: urlString) else {
+            Logger.error("PUT failed: Invalid URL for path: \(path)", context: "PubkyStorageAdapter")
+            return StorageOperationResult(success: false, error: "Invalid URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
+        if needsPubkyHostHeader {
+            request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        }
+        request.httpBody = data
+        // Disable HTTP/3 (QUIC) to avoid connectivity issues
+        if #available(iOS 17.0, *) {
+            request.assumesHTTP3Capable = false
+        }
+        
+        var result: StorageOperationResult?
+        let semaphore = DispatchSemaphore(value: 0)
+        
+        let task = session.dataTask(with: request) { _, response, error in
+            defer { semaphore.signal() }
+            
+            if let error = error {
+                Logger.error("PUT binary network error: \(error.localizedDescription)", context: "PubkyStorageAdapter")
+                result = StorageOperationResult(success: false, error: "Network error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                result = StorageOperationResult(success: false, error: "Invalid HTTP response")
+                return
+            }
+            
+            if (200...299).contains(httpResponse.statusCode) {
+                Logger.debug("PUT binary succeeded: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
+                result = StorageOperationResult(success: true, error: nil)
+            } else {
+                Logger.error("PUT binary failed: HTTP \(httpResponse.statusCode)", context: "PubkyStorageAdapter")
+                result = StorageOperationResult(success: false, error: "HTTP \(httpResponse.statusCode)")
+            }
+        }
+        
+        task.resume()
+        let waitResult = semaphore.wait(timeout: .now() + 60)
+        if waitResult == .timedOut {
+            task.cancel()
+            Logger.error("PUT binary timed out for path: \(path)", context: "PubkyStorageAdapter")
+            return StorageOperationResult(success: false, error: "Request timed out")
+        }
         
         return result ?? StorageOperationResult(success: false, error: "Unknown error")
     }
@@ -387,6 +487,10 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         if needsPubkyHostHeader {
             request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
         }
+        // Disable HTTP/3 (QUIC) to avoid connectivity issues
+        if #available(iOS 17.0, *) {
+            request.assumesHTTP3Capable = false
+        }
         
         var result: StorageOperationResult?
         let semaphore = DispatchSemaphore(value: 0)
@@ -417,7 +521,12 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         }
         
         task.resume()
-        semaphore.wait()
+        let waitResult = semaphore.wait(timeout: .now() + 60)
+        if waitResult == .timedOut {
+            task.cancel()
+            Logger.error("DELETE timed out for path: \(path)", context: "PubkyStorageAdapter")
+            return StorageOperationResult(success: false, error: "Request timed out")
+        }
         
         return result ?? StorageOperationResult(success: false, error: "Unknown error")
     }
@@ -431,7 +540,6 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
         }
         
         var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(buildSessionCookie(), forHTTPHeaderField: "Cookie")
         if needsPubkyHostHeader {
             request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
@@ -457,22 +565,23 @@ public class PubkyAuthenticatedStorageAdapter: PubkyAuthenticatedStorageCallback
             case 404:
                 result = StorageListResult(success: true, entries: [], error: nil)
             case 200...299:
-                guard let data = data, let jsonString = String(data: data, encoding: .utf8) else {
+                guard let data = data, let responseString = String(data: data, encoding: .utf8) else {
                     result = StorageListResult(success: true, entries: [], error: nil)
                     return
                 }
                 
-                // Parse JSON array
-                if let jsonData = jsonString.data(using: .utf8),
-                   let jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
-                    let entries = jsonArray.compactMap { $0["path"] as? String }
-                    result = StorageListResult(success: true, entries: entries, error: nil)
-                } else if let jsonData = jsonString.data(using: .utf8),
-                          let jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [String] {
-                    result = StorageListResult(success: true, entries: jsonArray, error: nil)
-                } else {
-                    result = StorageListResult(success: false, entries: [], error: "Failed to parse response")
+                // Homeserver returns newline-separated pubky:// URIs
+                // Extract just the final path component (the pubkey or file ID)
+                let lines = responseString.components(separatedBy: .newlines)
+                    .filter { !$0.isEmpty }
+                
+                let entries = lines.compactMap { uri -> String? in
+                    // Parse pubky://owner/pub/path/to/item to extract just "item"
+                    guard let url = URL(string: uri) else { return nil }
+                    return url.lastPathComponent
                 }
+                
+                result = StorageListResult(success: true, entries: entries, error: nil)
             default:
                 result = StorageListResult(success: false, entries: [], error: "HTTP \(httpResponse.statusCode)")
             }

@@ -157,9 +157,28 @@ public final class PaykitManager {
     /// Set a session manually (from cross-device auth or manual import)
     public func setSession(_ session: PubkyRingSession) {
         Logger.info("Session set for pubkey: \(session.pubkey)", context: "PaykitManager")
+        
+        // Persist the pubkey for identity checks
+        PaykitKeyManager.shared.setCurrentPublicKey(z32: session.pubkey)
+        
         // The session is already cached in PubkyRingBridge during import/callback
         // Configure DirectoryService for authenticated writes to homeserver
         DirectoryService.shared.configureWithPubkySession(session)
+        
+        // Notify UI that profile/identity changed
+        NotificationCenter.default.post(name: .profileUpdated, object: nil)
+        
+        // Trigger proposal discovery now that we have crypto keys
+        Task {
+            await triggerProposalDiscovery()
+        }
+    }
+    
+    /// Trigger discovery of subscription proposals from known peers
+    private func triggerProposalDiscovery() async {
+        Logger.info("Triggering proposal discovery after session setup", context: "PaykitManager")
+        // Poll now - the polling service handles notifications for discovered proposals
+        await PaykitPollingService.shared.pollNow()
     }
     
     /// Check if a session is currently active
@@ -168,6 +187,38 @@ public final class PaykitManager {
             return PubkyRingBridge.shared.getCachedSession(for: pubkey) != nil
         }
         return false
+    }
+    
+    /// Disconnect from Pubky and clear all related data.
+    /// This allows a fresh reconnection with Ring.
+    public func disconnect() {
+        Logger.info("Disconnecting from Pubky...", context: "PaykitManager")
+        
+        // Clear subscription/proposal storage for current identity (before clearing keys)
+        if let pubkey = ownerPubkey {
+            let subscriptionStorage = SubscriptionStorage(identityName: pubkey)
+            try? subscriptionStorage.clearAll()
+            
+            let contactStorage = ContactStorage(identityName: pubkey)
+            try? contactStorage.clearAll()
+        }
+        
+        // Clear cached sessions (handles both namespaces)
+        PubkyRingBridge.shared.clearAllSessions()
+        
+        // Clear key manager data - uses bulk delete for all paykit.* keys
+        PaykitKeyManager.shared.clearAllKeys()
+        
+        // Clear DirectoryService cache and session
+        DirectoryService.shared.disconnect()
+        
+        // Clear profile storage (handles both namespaces)
+        ProfileStorage.shared.clearCache()
+        
+        // Notify UI that profile was updated (cleared)
+        NotificationCenter.default.post(name: .profileUpdated, object: nil)
+        
+        Logger.info("Disconnected from Pubky - all data cleared", context: "PaykitManager")
     }
 }
 

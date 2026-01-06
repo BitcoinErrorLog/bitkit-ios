@@ -854,14 +854,18 @@ public final class PubkyRingBridge {
             return true
         }
         
-        Logger.info("Received secure handoff callback for \(pubkey.prefix(12))...", context: "PubkyRingBridge")
+        // Get homeserver pubkey from callback (for iOS which lacks pkarr resolution)
+        let homeserverPubkey = params["homeserver"]
+        
+        Logger.info("Received secure handoff callback for \(pubkey.prefix(12))... homeserver=\(homeserverPubkey?.prefix(12) ?? "default")", context: "PubkyRingBridge")
         
         // Fetch and decrypt payload asynchronously from homeserver
         Task {
             do {
                 let result = try await SecureHandoffHandler.shared.fetchAndProcessPayload(
                     pubkey: pubkey,
-                    requestId: requestId
+                    requestId: requestId,
+                    homeserverPubkey: homeserverPubkey
                 )
                 
                 // Cache the session
@@ -952,11 +956,17 @@ public final class PubkyRingBridge {
     
     /// Clear all sessions from cache and keychain
     public func clearAllSessions() {
-        for pubkey in sessionCache.keys {
-            keychainStorage.deleteQuietly(key: "pubky.session.\(pubkey)")
-        }
+        // Clear all session keys from keychain (both namespaces)
+        keychainStorage.deleteAllWithPrefix("pubky.session.")
+        keychainStorage.deleteAllWithPrefix("pubky.noise.")
+        keychainStorage.deleteAllWithPrefix("pubky.ephemeral")
+        
+        // Clear in-memory caches
         sessionCache.removeAll()
-        Logger.info("Cleared all sessions", context: "PubkyRingBridge")
+        keypairCache.removeAll()
+        _deviceId = nil
+        
+        Logger.info("Cleared all sessions and related data from keychain", context: "PubkyRingBridge")
     }
     
     /// Set a session directly (for manual or imported sessions)
@@ -1060,8 +1070,12 @@ public final class PubkyRingBridge {
             
             // Restore to keypair cache (we only have the secret key, not public)
             // The public key would need to be re-derived from Pubky-ring
-            if let secretKeyData = noiseKey.secretKey.data(using: .utf8) {
+            // CRITICAL: noiseKey.secretKey is a hex string (64 chars). Decode to 32-byte binary data.
+            let secretKeyData = noiseKey.secretKey.hexaData
+            if secretKeyData.count == 32 {
                 noiseKeyCache.setKey(secretKeyData, deviceId: noiseKey.deviceId, epoch: UInt32(noiseKey.epoch))
+            } else {
+                Logger.warn("Invalid noise key length \(secretKeyData.count) for epoch \(noiseKey.epoch)", context: "PubkyRingBridge")
             }
         }
         

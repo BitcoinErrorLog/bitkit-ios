@@ -184,20 +184,25 @@ public final class SecureHandoffHandler {
     /// Called before initiating the Ring request. The secret key is stored temporarily
     /// and deleted after successful decryption.
     ///
-    /// - Parameter secretKey: Ephemeral X25519 secret key as hex string
+    /// - Parameter secretKey: Ephemeral X25519 secret key as hex string (64 chars = 32 bytes)
     public func storeEphemeralKey(_ secretKey: String) {
-        if let data = secretKey.data(using: .utf8) {
-            keychainStorage.set(key: ephemeralKeyKeychainKey, value: data)
-            Logger.debug("Stored ephemeral handoff key", context: "SecureHandoffHandler")
+        // CRITICAL: secretKey is a hex string (64 chars). Decode to 32-byte binary data.
+        let data = secretKey.hexaData
+        guard data.count == 32 else {
+            Logger.warn("Invalid ephemeral key length \(data.count), expected 32", context: "SecureHandoffHandler")
+            return
         }
+        keychainStorage.set(key: ephemeralKeyKeychainKey, value: data)
+        Logger.debug("Stored ephemeral handoff key (\(data.count) bytes)", context: "SecureHandoffHandler")
     }
     
-    /// Get stored ephemeral secret key
+    /// Get stored ephemeral secret key as hex string
     private func getEphemeralKey() -> String? {
         guard let data = keychainStorage.get(key: ephemeralKeyKeychainKey) else {
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        // Data is stored as 32-byte binary, convert back to hex string
+        return data.hex
     }
     
     /// Clear ephemeral secret key (zeroize after use)
@@ -217,9 +222,14 @@ public final class SecureHandoffHandler {
     public func fetchAndProcessPayload(
         pubkey: String,
         requestId: String,
-        ephemeralSecretKey: String? = nil
+        ephemeralSecretKey: String? = nil,
+        homeserverPubkey: String? = nil
     ) async throws -> PaykitSetupResult {
         Logger.info("Fetching secure handoff payload for \(pubkey.prefix(12))...", context: "SecureHandoffHandler")
+        
+        // Resolve homeserver URL upfront - we'll need it for both fetching AND for the session
+        let resolvedHomeserverURL = PubkyConfig.homeserverBaseURL(for: homeserverPubkey ?? PubkyConfig.defaultHomeserver)
+        Logger.debug("Resolved homeserver URL: \(resolvedHomeserverURL)", context: "SecureHandoffHandler")
         
         // Get ephemeral key (from parameter or stored)
         let secretKey = ephemeralSecretKey ?? getEphemeralKey()
@@ -228,7 +238,8 @@ public final class SecureHandoffHandler {
         let payload = try await fetchHandoffPayload(
             pubkey: pubkey,
             requestId: requestId,
-            ephemeralSecretKey: secretKey
+            ephemeralSecretKey: secretKey,
+            homeserverPubkey: homeserverPubkey
         )
         
         // 2. Clear ephemeral key now that we've decrypted
@@ -239,8 +250,8 @@ public final class SecureHandoffHandler {
         // 3. Validate expiration
         try validatePayload(payload)
         
-        // 4. Build result
-        let result = buildSetupResult(from: payload)
+        // 4. Build result - use resolved homeserver URL (payload.homeserverUrl might be nil)
+        let result = buildSetupResult(from: payload, homeserverURL: resolvedHomeserverURL)
         
         // 5. Cache session and noise keys
         try cacheAndPersistResult(result, deviceId: payload.deviceId)
@@ -280,14 +291,18 @@ public final class SecureHandoffHandler {
     private func fetchHandoffPayload(
         pubkey: String,
         requestId: String,
-        ephemeralSecretKey: String?
+        ephemeralSecretKey: String?,
+        homeserverPubkey: String? = nil
     ) async throws -> SecureHandoffPayload {
         let handoffPath = "/pub/paykit.app/v0/handoff/\(requestId)"
         
-        Logger.debug("Fetching handoff from path: \(handoffPath)", context: "SecureHandoffHandler")
+        // Resolve homeserver URL - use provided pubkey or fall back to default
+        // The homeserver pubkey is passed from Ring's callback for iOS compatibility
+        let homeserverURL = PubkyConfig.homeserverBaseURL(for: homeserverPubkey ?? PubkyConfig.defaultHomeserver)
+        Logger.debug("Fetching handoff from \(homeserverURL)\(handoffPath) for pubkey \(pubkey.prefix(16))...", context: "SecureHandoffHandler")
         
         let adapter = PubkyUnauthenticatedStorageAdapter(
-            homeserverBaseURL: PubkyConfig.homeserverBaseURL()
+            homeserverBaseURL: homeserverURL
         )
         
         let data = try await PubkyStorageAdapter.shared.readFile(
@@ -363,14 +378,14 @@ public final class SecureHandoffHandler {
         json.contains("\"v\":1") || json.contains("\"v\": 1")
     }
     
-    private func buildSetupResult(from payload: SecureHandoffPayload) -> PaykitSetupResult {
+    private func buildSetupResult(from payload: SecureHandoffPayload, homeserverURL: String) -> PaykitSetupResult {
         let session = PubkyRingSession(
             pubkey: payload.pubky,
             sessionSecret: payload.sessionSecret,
             capabilities: payload.capabilities,
             createdAt: Date(timeIntervalSince1970: TimeInterval(payload.createdAt) / 1000),
             expiresAt: nil,
-            homeserverURL: payload.homeserverUrl
+            homeserverURL: homeserverURL  // Use resolved URL instead of potentially nil payload value
         )
         
         var keypair0: NoiseKeypair?
@@ -442,8 +457,10 @@ public final class SecureHandoffHandler {
     }
     
     private func persistKeypair(_ keypair: NoiseKeypair, deviceId: String, epoch: UInt32) {
-        guard let secretKeyData = keypair.secretKey.data(using: .utf8) else {
-            Logger.warn("Failed to encode secret key for epoch \(epoch)", context: "SecureHandoffHandler")
+        // CRITICAL: keypair.secretKey is a hex string (64 chars). Decode to 32-byte binary data.
+        let secretKeyData = keypair.secretKey.hexaData
+        guard secretKeyData.count == 32 else {
+            Logger.warn("Invalid secret key length \(secretKeyData.count) for epoch \(epoch), expected 32", context: "SecureHandoffHandler")
             return
         }
         

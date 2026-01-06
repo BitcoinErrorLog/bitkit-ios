@@ -12,8 +12,10 @@ import SwiftUI
 class SubscriptionsViewModel: ObservableObject {
     @Published var subscriptions: [BitkitSubscription] = []
     @Published var proposals: [SubscriptionProposal] = []
+    @Published var sentProposals: [SentProposal] = []
     @Published var paymentHistory: [SubscriptionPayment] = []
     @Published var isLoading = false
+    @Published var isLoadingSentProposals = false
     @Published var showingAddSubscription = false
     
     // Sending proposal state
@@ -33,9 +35,10 @@ class SubscriptionsViewModel: ObservableObject {
     private let directoryService: DirectoryService
     private let identityName: String
     
-    init(identityName: String = "default", directoryService: DirectoryService = .shared) {
-        self.identityName = identityName
-        self.subscriptionStorage = SubscriptionStorage(identityName: identityName)
+    init(identityName: String? = nil, directoryService: DirectoryService = .shared) {
+        // Use the current pubkey for storage key to match PaykitPollingService behavior
+        self.identityName = identityName ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? "default"
+        self.subscriptionStorage = SubscriptionStorage(identityName: self.identityName)
         self.directoryService = directoryService
     }
     
@@ -47,11 +50,76 @@ class SubscriptionsViewModel: ObservableObject {
     }
     
     func loadProposals() {
+        // Invalidate cache to ensure we get fresh data after polling
+        subscriptionStorage.invalidateCache()
         proposals = subscriptionStorage.pendingProposals()
     }
     
     func loadPaymentHistory() {
         paymentHistory = subscriptionStorage.listPayments()
+    }
+    
+    func loadSentProposals() {
+        isLoadingSentProposals = true
+        sentProposals = subscriptionStorage.listSentProposals()
+        isLoadingSentProposals = false
+    }
+    
+    /// Discover proposals from network by polling known peers.
+    @Published var isDiscovering = false
+    @Published var discoveryResult: String?
+    
+    func discoverProposals() async {
+        isDiscovering = true
+        discoveryResult = nil
+        
+        // Check if we have an identity
+        guard let myPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            discoveryResult = "No identity configured"
+            isDiscovering = false
+            return
+        }
+        
+        Logger.info("=== DISCOVERY START ===", context: "SubscriptionsVM")
+        Logger.info("My full pubkey: \(myPubkey)", context: "SubscriptionsVM")
+        
+        // Check follows
+        do {
+            let follows = try await directoryService.fetchFollows()
+            if follows.isEmpty {
+                discoveryResult = "No follows. My pk: \(myPubkey.prefix(12))..."
+                isDiscovering = false
+                return
+            }
+            
+            // Get my scope for debugging
+            let myScope = try? PaykitV0Protocol.subscriberScope(myPubkey)
+            Logger.info("My scope (where proposals TO ME are stored): \(myScope ?? "?")", context: "SubscriptionsVM")
+            Logger.info("Follows (peers to check): \(follows)", context: "SubscriptionsVM")
+            
+            discoveryResult = "Polling \(follows.count) peers..."
+            
+            await PaykitPollingService.shared.pollNow()
+            loadProposals()
+            
+            if proposals.isEmpty {
+                // Show debug info - check if noise key is missing
+                let firstFollow = follows.first ?? "none"
+                let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair()
+                let hasNoiseKey = noiseKeypair != nil
+                if !hasNoiseKey {
+                    discoveryResult = "⚠️ No Noise key!\nReconnect to Pubky Ring to get crypto keys.\nFollow: \(firstFollow.prefix(20))..."
+                } else {
+                    discoveryResult = "0 proposals found.\nNoise ✓ epoch \(noiseKeypair?.epoch ?? 0)\n\(follows.count) follows checked"
+                }
+            } else {
+                discoveryResult = "Found \(proposals.count) proposals!"
+            }
+        } catch {
+            discoveryResult = "Error: \(error.localizedDescription)"
+        }
+        
+        isDiscovering = false
     }
     
     private func calculateSpending() {
@@ -114,6 +182,84 @@ class SubscriptionsViewModel: ObservableObject {
         loadProposals()
     }
     
+    /// Dismiss a received proposal locally (remove from pending list).
+    func dismissProposal(_ proposal: SubscriptionProposal) throws {
+        try subscriptionStorage.deleteProposal(id: proposal.id)
+        loadProposals()
+    }
+    
+    // MARK: - Sent Proposals Management
+    
+    /// Cancel a sent proposal (delete from homeserver and local storage).
+    ///
+    /// As the provider, we can delete proposals we've sent.
+    @Published var isDeletingSentProposal = false
+    @Published var deleteSentProposalError: String?
+    
+    func cancelSentProposal(_ proposal: SentProposal) async {
+        isDeletingSentProposal = true
+        deleteSentProposalError = nil
+        
+        do {
+            // Delete from homeserver
+            try await directoryService.deleteSubscriptionProposal(
+                proposalId: proposal.id,
+                subscriberPubkey: proposal.recipientPubkey
+            )
+            
+            // Delete from local storage
+            try subscriptionStorage.deleteSentProposal(id: proposal.id)
+            
+            // Reload the list
+            loadSentProposals()
+            Logger.info("Cancelled sent proposal: \(proposal.id)", context: "SubscriptionsVM")
+        } catch {
+            deleteSentProposalError = error.localizedDescription
+            Logger.error("Failed to cancel sent proposal: \(error)", context: "SubscriptionsVM")
+        }
+        
+        isDeletingSentProposal = false
+    }
+    
+    /// Clean up orphaned proposals from the homeserver.
+    ///
+    /// This finds proposals that exist on the homeserver but aren't tracked locally
+    /// (e.g., from previous sessions or failed deletions) and deletes them.
+    ///
+    /// - Returns: Number of orphaned proposals deleted
+    @discardableResult
+    func cleanupOrphanedProposals() async -> Int {
+        Logger.info("Starting orphaned proposal cleanup", context: "SubscriptionsVM")
+        
+        // Get all unique recipient pubkeys from our sent proposals
+        let sentProposals = subscriptionStorage.listSentProposals()
+        let trackedProposalIds = Set(sentProposals.map { $0.id })
+        let recipientPubkeys = Set(sentProposals.map { $0.recipientPubkey })
+        
+        var totalDeleted = 0
+        
+        for recipientPubkey in recipientPubkeys {
+            do {
+                // List all proposals on homeserver for this recipient
+                let homeserverProposals = try await directoryService.listProposalsOnHomeserver(subscriberPubkey: recipientPubkey)
+                
+                // Find orphaned proposals (on homeserver but not tracked locally)
+                let orphanedIds = homeserverProposals.filter { !trackedProposalIds.contains($0) }
+                
+                if !orphanedIds.isEmpty {
+                    Logger.info("Found \(orphanedIds.count) orphaned proposals for \(recipientPubkey.prefix(12))...", context: "SubscriptionsVM")
+                    let deleted = await directoryService.deleteProposalsBatch(proposalIds: orphanedIds, subscriberPubkey: recipientPubkey)
+                    totalDeleted += deleted
+                }
+            } catch {
+                Logger.warn("Failed to check proposals for \(recipientPubkey.prefix(12))...: \(error)", context: "SubscriptionsVM")
+            }
+        }
+        
+        Logger.info("Cleanup complete: deleted \(totalDeleted) orphaned proposals", context: "SubscriptionsVM")
+        return totalDeleted
+    }
+    
     // MARK: - Send Proposal
     
     /// Send a subscription proposal to a subscriber.
@@ -153,7 +299,22 @@ class SubscriptionsViewModel: ObservableObject {
         )
         
         do {
-            try await directoryService.publishSubscriptionProposal(proposal, subscriberPubkey: recipientPubkey.trimmingCharacters(in: .whitespaces))
+            let trimmedRecipient = recipientPubkey.trimmingCharacters(in: .whitespaces)
+            try await directoryService.publishSubscriptionProposal(proposal, subscriberPubkey: trimmedRecipient)
+            
+            // Save sent proposal locally for tracking
+            let sentProposal = SentProposal(
+                id: proposal.id,
+                recipientPubkey: trimmedRecipient,
+                amountSats: amountSats,
+                frequency: frequency,
+                description: description,
+                createdAt: Date(),
+                status: .pending
+            )
+            try? subscriptionStorage.saveSentProposal(sentProposal)
+            loadSentProposals()
+            
             sendSuccess = true
             isSending = false
         } catch {

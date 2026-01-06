@@ -10,6 +10,9 @@ import Foundation
 /// Manages persistent storage of subscriptions, proposals, and payment history
 public class SubscriptionStorage {
     
+    /// Shared singleton instance - use this to ensure caching works correctly
+    public static let shared = SubscriptionStorage()
+    
     private let keychain: PaykitKeychainStorage
     private let identityName: String
     
@@ -17,10 +20,12 @@ public class SubscriptionStorage {
     private var subscriptionsCache: [BitkitSubscription]?
     private var proposalsCache: [SubscriptionProposal]?
     private var paymentsCache: [SubscriptionPayment]?
+    private var sentProposalsCache: [SentProposal]?
     
     private var subscriptionsKey: String { "paykit.subscriptions.\(identityName)" }
     private var proposalsKey: String { "paykit.proposals.\(identityName)" }
     private var paymentsKey: String { "paykit.payments.\(identityName)" }
+    private var sentProposalsKey: String { "paykit.sent_proposals.\(identityName)" }
     private var seenProposalIdsKey: String { "paykit.proposals.seen.\(identityName)" }
     private var declinedProposalIdsKey: String { "paykit.proposals.declined.\(identityName)" }
     
@@ -116,6 +121,16 @@ public class SubscriptionStorage {
     }
     
     // MARK: - Proposals CRUD
+    
+    /// Invalidate all in-memory caches to force reload from keychain
+    public func invalidateCache() {
+        subscriptionsCache = nil
+        proposalsCache = nil
+        paymentsCache = nil
+        sentProposalsCache = nil
+        seenProposalIdsCache = nil
+        declinedProposalIdsCache = nil
+    }
     
     public func listProposals() -> [SubscriptionProposal] {
         if let cached = proposalsCache {
@@ -258,14 +273,69 @@ public class SubscriptionStorage {
         listPayments().filter { $0.subscriptionId == subscriptionId }
     }
     
+    // MARK: - Sent Proposals CRUD
+    
+    public func listSentProposals() -> [SentProposal] {
+        if let cached = sentProposalsCache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: sentProposalsKey) else {
+                return []
+            }
+            let proposals = try JSONDecoder().decode([SentProposal].self, from: data)
+            sentProposalsCache = proposals
+            return proposals.sorted { $0.createdAt > $1.createdAt }
+        } catch {
+            Logger.error("Failed to load sent proposals: \(error)", context: "SubscriptionStorage")
+            return []
+        }
+    }
+    
+    public func saveSentProposal(_ proposal: SentProposal) throws {
+        var proposals = listSentProposals()
+        
+        if let index = proposals.firstIndex(where: { $0.id == proposal.id }) {
+            proposals[index] = proposal
+        } else {
+            proposals.append(proposal)
+        }
+        
+        try persistSentProposals(proposals)
+    }
+    
+    public func updateSentProposalStatus(id: String, status: SentProposalStatus) throws {
+        var proposals = listSentProposals()
+        guard let index = proposals.firstIndex(where: { $0.id == id }) else { return }
+        proposals[index].status = status
+        try persistSentProposals(proposals)
+    }
+    
+    public func deleteSentProposal(id: String) throws {
+        var proposals = listSentProposals()
+        proposals.removeAll { $0.id == id }
+        try persistSentProposals(proposals)
+    }
+    
     // MARK: - Clear All
     
     public func clearAll() throws {
-        try persistSubscriptions([])
-        try persistProposals([])
-        try persistPayments([])
-        try persistSeenProposalIds([])
-        try persistDeclinedProposalIds([])
+        // Clear in-memory caches
+        subscriptionsCache = nil
+        proposalsCache = nil
+        paymentsCache = nil
+        sentProposalsCache = nil
+        
+        // Delete from keychain
+        try? keychain.delete(key: subscriptionsKey)
+        try? keychain.delete(key: proposalsKey)
+        try? keychain.delete(key: paymentsKey)
+        try? keychain.delete(key: sentProposalsKey)
+        try? keychain.delete(key: seenProposalIdsKey)
+        try? keychain.delete(key: declinedProposalIdsKey)
+        
+        Logger.info("SubscriptionStorage: Cleared all data for \(identityName.prefix(12))...", context: "SubscriptionStorage")
     }
     
     // MARK: - Private Persistence
@@ -287,4 +357,46 @@ public class SubscriptionStorage {
         try keychain.store(key: paymentsKey, data: data)
         paymentsCache = payments
     }
+    
+    private func persistSentProposals(_ proposals: [SentProposal]) throws {
+        let data = try JSONEncoder().encode(proposals)
+        try keychain.store(key: sentProposalsKey, data: data)
+        sentProposalsCache = proposals
+    }
+}
+
+// MARK: - Sent Proposal Model
+
+public struct SentProposal: Identifiable, Codable {
+    public let id: String
+    public let recipientPubkey: String
+    public let amountSats: Int64
+    public let frequency: String
+    public let description: String?
+    public let createdAt: Date
+    public var status: SentProposalStatus
+    
+    public init(
+        id: String = UUID().uuidString,
+        recipientPubkey: String,
+        amountSats: Int64,
+        frequency: String,
+        description: String? = nil,
+        createdAt: Date = Date(),
+        status: SentProposalStatus = .pending
+    ) {
+        self.id = id
+        self.recipientPubkey = recipientPubkey
+        self.amountSats = amountSats
+        self.frequency = frequency
+        self.description = description
+        self.createdAt = createdAt
+        self.status = status
+    }
+}
+
+public enum SentProposalStatus: String, Codable {
+    case pending
+    case accepted
+    case declined
 }

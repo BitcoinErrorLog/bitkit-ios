@@ -13,10 +13,13 @@ struct PaykitSubscriptionsView: View {
     @State private var selectedTab: SubscriptionTab = .active
     @State private var selectedSubscription: BitkitSubscription? = nil
     @State private var showingDetail = false
+    @State private var isCleaningUp = false
+    @State private var cleanupResult: String? = nil
     
     enum SubscriptionTab: String, CaseIterable {
         case active = "Active"
         case proposals = "Proposals"
+        case sent = "Sent"
         case history = "History"
     }
     
@@ -41,6 +44,8 @@ struct PaykitSubscriptionsView: View {
                     .accessibilityIdentifier("subscriptions_tab_active")
                 Text("Proposals").tag(SubscriptionTab.proposals)
                     .accessibilityIdentifier("subscriptions_tab_proposals")
+                Text("Sent").tag(SubscriptionTab.sent)
+                    .accessibilityIdentifier("subscriptions_tab_sent")
                 Text("History").tag(SubscriptionTab.history)
                     .accessibilityIdentifier("subscriptions_tab_history")
             }
@@ -60,6 +65,8 @@ struct PaykitSubscriptionsView: View {
                             activeSubscriptionsSection
                         case .proposals:
                             proposalsSection
+                        case .sent:
+                            sentProposalsSection
                         case .history:
                             paymentHistorySection
                         }
@@ -74,6 +81,7 @@ struct PaykitSubscriptionsView: View {
         .onAppear {
             viewModel.loadSubscriptions()
             viewModel.loadProposals()
+            viewModel.loadSentProposals()
             viewModel.loadPaymentHistory()
             
             // Consume pending subscription/proposal ID from notification/deeplink
@@ -90,8 +98,9 @@ struct PaykitSubscriptionsView: View {
             }
         }
         .refreshable {
+            await viewModel.discoverProposals()
             viewModel.loadSubscriptions()
-            viewModel.loadProposals()
+            viewModel.loadSentProposals()
             viewModel.loadPaymentHistory()
         }
         .sheet(isPresented: $viewModel.showingAddSubscription) {
@@ -228,6 +237,35 @@ struct PaykitSubscriptionsView: View {
     
     private var proposalsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Discover button
+            VStack(alignment: .trailing, spacing: 8) {
+                Button {
+                    Task {
+                        await viewModel.discoverProposals()
+                    }
+                } label: {
+                    HStack {
+                        if viewModel.isDiscovering {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text("Discover from Peers")
+                    }
+                    .foregroundColor(.brandAccent)
+                }
+                .disabled(viewModel.isDiscovering)
+                
+                // Discovery result message
+                if let result = viewModel.discoveryResult {
+                    Text(result)
+                        .font(.caption)
+                        .foregroundColor(.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            
             if viewModel.proposals.isEmpty {
                 VStack(spacing: 24) {
                     Image(systemName: "envelope.badge")
@@ -246,6 +284,82 @@ struct PaykitSubscriptionsView: View {
             } else {
                 ForEach(viewModel.proposals) { proposal in
                     ProposalCard(proposal: proposal, viewModel: viewModel)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                try? viewModel.dismissProposal(proposal)
+                            } label: {
+                                Label("Dismiss", systemImage: "trash")
+                            }
+                        }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Sent Proposals Section
+    
+    private var sentProposalsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Cleanup button for orphaned proposals
+            HStack {
+                Spacer()
+                Button {
+                    Task {
+                        isCleaningUp = true
+                        cleanupResult = nil
+                        let deleted = await viewModel.cleanupOrphanedProposals()
+                        cleanupResult = deleted > 0 ? "Cleaned up \(deleted) orphaned proposal\(deleted == 1 ? "" : "s")" : "No orphaned proposals found"
+                        isCleaningUp = false
+                        // Clear result after a few seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            cleanupResult = nil
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isCleaningUp {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text("Cleanup Orphaned")
+                    }
+                    .foregroundColor(.brandAccent)
+                    .font(.subheadline)
+                }
+                .disabled(isCleaningUp)
+            }
+            
+            if let result = cleanupResult {
+                Text(result)
+                    .font(.caption)
+                    .foregroundColor(.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            
+            if viewModel.isLoadingSentProposals {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+            } else if viewModel.sentProposals.isEmpty {
+                VStack(spacing: 24) {
+                    Image(systemName: "paperplane")
+                        .font(.system(size: 80))
+                        .foregroundColor(.textSecondary)
+                    
+                    BodyLText("No Sent Proposals")
+                        .foregroundColor(.textPrimary)
+                    
+                    BodyMText("Subscription proposals you send will appear here")
+                        .foregroundColor(.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else {
+                ForEach(viewModel.sentProposals) { proposal in
+                    SentProposalRow(proposal: proposal, viewModel: viewModel)
                 }
             }
         }
@@ -418,6 +532,15 @@ struct ProposalCard: View {
         }
     }
     
+    private func dismissProposal() {
+        do {
+            try viewModel.dismissProposal(proposal)
+            app.toast(type: .success, title: "Proposal dismissed")
+        } catch {
+            app.toast(error)
+        }
+    }
+    
     private func formatSats(_ amount: Int64) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -433,6 +556,144 @@ struct ProposalCard: View {
     private func truncatePubkey(_ pubkey: String) -> String {
         guard pubkey.count > 16 else { return pubkey }
         return "\(pubkey.prefix(8))...\(pubkey.suffix(8))"
+    }
+}
+
+// MARK: - Sent Proposal Row
+
+struct SentProposalRow: View {
+    let proposal: SentProposal
+    @ObservedObject var viewModel: SubscriptionsViewModel
+    @State private var showCancelConfirmation = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandAccent.opacity(0.2))
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "paperplane.fill")
+                        .foregroundColor(.brandAccent)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    BodySText("To:")
+                        .foregroundColor(.textSecondary)
+                    BodyMText(truncatePubkey(proposal.recipientPubkey))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    HeadlineText(formatSats(proposal.amountSats))
+                        .foregroundColor(.white)
+                    BodySText("/ \(proposal.frequency)")
+                        .foregroundColor(.textSecondary)
+                }
+            }
+            
+            if let description = proposal.description, !description.isEmpty {
+                BodyMText(description)
+                    .foregroundColor(.textSecondary)
+            }
+            
+            HStack {
+                SentProposalStatusBadge(status: proposal.status)
+                
+                Spacer()
+                
+                if proposal.status == .pending {
+                    Button {
+                        showCancelConfirmation = true
+                    } label: {
+                        if viewModel.isDeletingSentProposal {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .red))
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red.opacity(0.8))
+                        }
+                    }
+                    .disabled(viewModel.isDeletingSentProposal)
+                }
+                
+                BodySText(formatDate(proposal.createdAt))
+                    .foregroundColor(.textSecondary)
+            }
+        }
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+        .accessibilityIdentifier("sent_proposal_row_\(proposal.id)")
+        .confirmationDialog("Cancel this proposal?", isPresented: $showCancelConfirmation, titleVisibility: .visible) {
+            Button("Cancel Proposal", role: .destructive) {
+                Task {
+                    await viewModel.cancelSentProposal(proposal)
+                }
+            }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("This will delete the proposal from the homeserver. The recipient will no longer see it.")
+        }
+    }
+    
+    private func formatSats(_ amount: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return "\(formatter.string(from: NSNumber(value: amount)) ?? "\(amount)")"
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func truncatePubkey(_ pubkey: String) -> String {
+        guard pubkey.count > 16 else { return pubkey }
+        return "\(pubkey.prefix(8))...\(pubkey.suffix(8))"
+    }
+}
+
+struct SentProposalStatusBadge: View {
+    let status: SentProposalStatus
+    
+    var body: some View {
+        Text(statusText)
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundColor(statusColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(statusColor.opacity(0.2))
+            .cornerRadius(4)
+    }
+    
+    private var statusText: String {
+        switch status {
+        case .pending:
+            return "Pending"
+        case .accepted:
+            return "Accepted"
+        case .declined:
+            return "Declined"
+        }
+    }
+    
+    private var statusColor: Color {
+        switch status {
+        case .pending:
+            return .orange
+        case .accepted:
+            return .green
+        case .declined:
+            return .redAccent
+        }
     }
 }
 
@@ -966,19 +1227,36 @@ struct AddSubscriptionView: View {
     @ObservedObject var viewModel: SubscriptionsViewModel
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var app: AppViewModel
+    @EnvironmentObject private var navigation: NavigationViewModel
     
     @State private var recipientPubkey = ""
     @State private var amount: Int64 = 1000
     @State private var frequency = "monthly"
     @State private var description = ""
+    @State private var showingContactPicker = false
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
-                        BodyLText("Recipient")
-                            .foregroundColor(.textPrimary)
+                        HStack {
+                            BodyLText("Recipient")
+                                .foregroundColor(.textPrimary)
+                            
+                            Spacer()
+                            
+                            Button {
+                                showingContactPicker = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.crop.circle")
+                                    Text("Contacts")
+                                }
+                                .foregroundColor(.brandAccent)
+                                .font(.subheadline)
+                            }
+                        }
                         
                         TextField("Recipient Public Key (z-base32)", text: $recipientPubkey)
                             .foregroundColor(.white)
@@ -1085,6 +1363,16 @@ struct AddSubscriptionView: View {
                     viewModel.resetSendState()
                     dismiss()
                 }
+            }
+            .sheet(isPresented: $showingContactPicker) {
+                ContactPickerSheet(
+                    onSelect: { contact in
+                        recipientPubkey = contact.publicKeyZ32
+                    },
+                    onNavigateToDiscovery: {
+                        navigation.navigate(.paykitContactDiscovery)
+                    }
+                )
             }
         }
     }

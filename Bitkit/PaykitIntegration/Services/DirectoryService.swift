@@ -389,6 +389,12 @@ public final class DirectoryService {
             if let profile = try await fetchProfile(for: ownerPubkey) {
                 cachedProfile = profile
                 cachedProfilePubkey = ownerPubkey
+                // Persist locally for offline access
+                try? ProfileStorage.shared.saveProfile(profile, for: ownerPubkey)
+                // Notify UI that profile was loaded
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .profileUpdated, object: nil)
+                }
                 Logger.info("Prefetched profile for \(ownerPubkey.prefix(12))...: \(profile.name ?? "unnamed")", context: "DirectoryService")
             }
         } catch {
@@ -398,10 +404,18 @@ public final class DirectoryService {
     
     /// Get profile from cache if available, otherwise fetch from network
     public func getOrFetchProfile(pubkey: String) async throws -> PubkyProfile? {
-        // Return cached profile if it matches the requested pubkey
+        // Return in-memory cached profile if it matches the requested pubkey
         if let cached = cachedProfile, cachedProfilePubkey == pubkey {
-            Logger.debug("Returning cached profile for \(pubkey.prefix(12))...", context: "DirectoryService")
+            Logger.debug("Returning in-memory cached profile for \(pubkey.prefix(12))...", context: "DirectoryService")
             return cached
+        }
+        
+        // Check local persistent storage
+        if let stored = ProfileStorage.shared.getProfile(for: pubkey) {
+            Logger.debug("Returning locally stored profile for \(pubkey.prefix(12))...", context: "DirectoryService")
+            cachedProfile = stored
+            cachedProfilePubkey = pubkey
+            return stored
         }
         
         // Fetch from network
@@ -411,6 +425,10 @@ public final class DirectoryService {
         if pubkey == PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
             cachedProfile = profile
             cachedProfilePubkey = pubkey
+            // Persist locally for offline access
+            if let profile = profile {
+                try? ProfileStorage.shared.saveProfile(profile, for: pubkey)
+            }
         }
         
         return profile
@@ -420,6 +438,22 @@ public final class DirectoryService {
     public func clearProfileCache() {
         cachedProfile = nil
         cachedProfilePubkey = nil
+        ProfileStorage.shared.clearCache()
+    }
+    
+    /// Disconnect and clear all session/transport state
+    public func disconnect() {
+        Logger.info("Disconnecting DirectoryService", context: "DirectoryService")
+        authenticatedAdapter = nil
+        authenticatedTransport = nil
+        unauthenticatedTransport = nil
+        homeserverBaseURL = nil
+        clearProfileCache()
+    }
+    
+    /// Get the authenticated storage adapter (for image uploads, etc.)
+    public func getAuthenticatedAdapter() -> PubkyAuthenticatedStorageAdapter? {
+        return authenticatedAdapter
     }
     
     /// Publish profile to Pubky directory
@@ -441,6 +475,19 @@ public final class DirectoryService {
         
         let data = try JSONSerialization.data(withJSONObject: profileDict)
         try await pubkyStorage.writeFile(path: profilePath, data: data, adapter: adapter)
+        
+        // Persist locally for offline access and update caches
+        if let ownerPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
+            cachedProfile = profile
+            cachedProfilePubkey = ownerPubkey
+            try? ProfileStorage.shared.saveProfile(profile, for: ownerPubkey)
+        }
+        
+        // Notify UI that profile was updated
+        await MainActor.run {
+            NotificationCenter.default.post(name: .profileUpdated, object: nil)
+        }
+        
         Logger.info("Published profile to Pubky directory", context: "DirectoryService")
     }
     
@@ -479,12 +526,17 @@ public final class DirectoryService {
     
     /// Fetch follows using direct FFI (fallback)
     private func fetchFollowsViaFFI(ownerPubkey: String) async throws -> [String] {
-        let storageAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL ?? PubkyConfig.homeserverBaseURL())
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let storageAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: baseURL)
         
         let pubkyStorage = PubkyStorageAdapter.shared
         let followsPath = "/pub/pubky.app/follows/"
         
-        return try await pubkyStorage.listDirectory(path: followsPath, adapter: storageAdapter, ownerPubkey: ownerPubkey)
+        Logger.info("Fetching follows from \(baseURL)\(followsPath) for owner \(ownerPubkey.prefix(12))...", context: "DirectoryService")
+        
+        let follows = try await pubkyStorage.listDirectory(path: followsPath, adapter: storageAdapter, ownerPubkey: ownerPubkey)
+        Logger.info("Found \(follows.count) follows: \(follows.map { String($0.prefix(12)) })", context: "DirectoryService")
+        return follows
     }
     
     /// Add a follow to the Pubky directory
@@ -667,6 +719,76 @@ public final class DirectoryService {
         Logger.info("Removed payment request: \(requestId)", context: "DirectoryService")
     }
     
+    /// Delete a subscription proposal from OUR storage (as provider).
+    ///
+    /// Used when the provider wants to cancel a pending proposal they sent.
+    ///
+    /// - Parameters:
+    ///   - proposalId: The proposal ID to delete
+    ///   - subscriberPubkey: The subscriber pubkey (used for scope computation)
+    public func deleteSubscriptionProposal(proposalId: String, subscriberPubkey: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let path = try PaykitV0Protocol.subscriptionProposalPath(subscriberPubkeyZ32: subscriberPubkey, proposalId: proposalId)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        try await pubkyStorage.deleteFile(path: path, adapter: adapter)
+        Logger.info("Deleted subscription proposal: \(proposalId) for subscriber \(subscriberPubkey.prefix(12))...", context: "DirectoryService")
+    }
+    
+    /// List all proposal IDs on the homeserver for a specific subscriber scope.
+    ///
+    /// Used by the sender to find orphaned proposals that exist on the homeserver
+    /// but aren't tracked locally (e.g., from previous sessions or failed deletions).
+    ///
+    /// - Parameter subscriberPubkey: The subscriber's z32 pubkey
+    /// - Returns: Array of proposal IDs found on the homeserver
+    public func listProposalsOnHomeserver(subscriberPubkey: String) async throws -> [String] {
+        guard let myPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32(),
+              authenticatedAdapter != nil else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: baseURL)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        let proposalsPath = try PaykitV0Protocol.subscriptionProposalsDir(subscriberPubkeyZ32: subscriberPubkey)
+        
+        do {
+            let proposalFiles = try await pubkyStorage.listDirectory(path: proposalsPath, adapter: unauthAdapter, ownerPubkey: myPubkey)
+            Logger.info("Found \(proposalFiles.count) proposals on homeserver for subscriber \(subscriberPubkey.prefix(12))...", context: "DirectoryService")
+            return proposalFiles
+        } catch {
+            Logger.debug("No proposals directory found for subscriber \(subscriberPubkey.prefix(12))...", context: "DirectoryService")
+            return []
+        }
+    }
+    
+    /// Delete multiple proposals from OUR storage (batch cleanup).
+    ///
+    /// Used to clean up orphaned proposals that exist on the homeserver
+    /// but aren't tracked locally.
+    ///
+    /// - Parameters:
+    ///   - proposalIds: Array of proposal IDs to delete
+    ///   - subscriberPubkey: The subscriber pubkey (used for scope computation)
+    /// - Returns: Number of successfully deleted proposals
+    public func deleteProposalsBatch(proposalIds: [String], subscriberPubkey: String) async -> Int {
+        var deleted = 0
+        for proposalId in proposalIds {
+            do {
+                try await deleteSubscriptionProposal(proposalId: proposalId, subscriberPubkey: subscriberPubkey)
+                deleted += 1
+            } catch {
+                Logger.warn("Failed to delete proposal \(proposalId): \(error)", context: "DirectoryService")
+            }
+        }
+        return deleted
+    }
+    
     // MARK: - Pending Requests Discovery
     
     /// Discover pending payment requests from a peer's storage.
@@ -679,11 +801,15 @@ public final class DirectoryService {
     ///   - myPubkey: Our pubkey (used for scope computation)
     /// - Returns: List of discovered requests addressed to us
     public func discoverPendingRequestsFromPeer(peerPubkey: String, myPubkey: String) async throws -> [DiscoveredRequest] {
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
+        // Use default homeserver - the pubky-host header routes to the peer's storage
+        let baseURL = PubkyConfig.homeserverBaseURL()
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: baseURL)
         let pubkyStorage = PubkyStorageAdapter.shared
         
         let myScope = try PaykitV0Protocol.recipientScope(myPubkey)
         let requestsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.requestsSubpath)/\(myScope)/"
+        
+        Logger.debug("Discovering requests: baseURL=\(baseURL), peer=\(peerPubkey.prefix(12))..., path=\(requestsPath)", context: "DirectoryService")
         
         do {
             let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: peerPubkey)
@@ -711,24 +837,37 @@ public final class DirectoryService {
     ///   - myPubkey: Our pubkey (used for scope computation)
     /// - Returns: List of discovered proposals addressed to us
     public func discoverSubscriptionProposalsFromPeer(peerPubkey: String, myPubkey: String) async throws -> [DiscoveredSubscriptionProposal] {
-        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverBaseURL)
+        // Use default homeserver - the pubky-host header routes to the peer's storage
+        let baseURL = PubkyConfig.homeserverBaseURL()
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: baseURL)
         let pubkyStorage = PubkyStorageAdapter.shared
         
         let myScope = try PaykitV0Protocol.subscriberScope(myPubkey)
         let proposalsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.subscriptionProposalsSubpath)/\(myScope)/"
         
+        Logger.info("Discovering proposals:", context: "DirectoryService")
+        Logger.info("  - baseURL: \(baseURL)", context: "DirectoryService")
+        Logger.info("  - peerPubkey (owner of storage): \(peerPubkey)", context: "DirectoryService")
+        Logger.info("  - myPubkey (receiver): \(myPubkey)", context: "DirectoryService")
+        Logger.info("  - myScope (derived from myPubkey): \(myScope)", context: "DirectoryService")
+        Logger.info("  - full path being listed: \(proposalsPath)", context: "DirectoryService")
+        
         do {
             let proposalFiles = try await pubkyStorage.listDirectory(path: proposalsPath, adapter: unauthAdapter, ownerPubkey: peerPubkey)
+            Logger.info("List result: \(proposalFiles.count) entries found: \(proposalFiles)", context: "DirectoryService")
             
             var proposals: [DiscoveredSubscriptionProposal] = []
             for proposalId in proposalFiles {
                 if let proposal = await decryptAndParseSubscriptionProposal(proposalId: proposalId, path: proposalsPath + proposalId, adapter: unauthAdapter, peerPubkey: peerPubkey, myPubkey: myPubkey) {
                     proposals.append(proposal)
+                    Logger.info("Successfully decrypted proposal: \(proposalId)", context: "DirectoryService")
+                } else {
+                    Logger.warn("Failed to decrypt proposal: \(proposalId)", context: "DirectoryService")
                 }
             }
             return proposals
         } catch {
-            Logger.error("Failed to discover proposals from \(peerPubkey): \(error)", context: "DirectoryService")
+            Logger.error("Failed to discover proposals from \(peerPubkey.prefix(12))...: \(error)", context: "DirectoryService")
             return []
         }
     }
@@ -805,11 +944,15 @@ public final class DirectoryService {
             }
             
             // Get our noise secret key for decryption
-            guard let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair(),
-                  let myNoiseSk = Data(hex: noiseKeypair.secretKey) else {
-                Logger.error("No Noise keypair available for decryption", context: "DirectoryService")
+            guard let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair() else {
+                Logger.error("No Noise keypair cached - cannot decrypt proposal \(proposalId)", context: "DirectoryService")
                 return nil
             }
+            guard let myNoiseSk = Data(hex: noiseKeypair.secretKey), myNoiseSk.count == 32 else {
+                Logger.error("Noise key hex conversion failed for proposal \(proposalId)", context: "DirectoryService")
+                return nil
+            }
+            Logger.debug("Decrypting proposal \(proposalId) with noise key (epoch \(noiseKeypair.epoch))", context: "DirectoryService")
             
             // Build canonical AAD
             let aad = try PaykitV0Protocol.subscriptionProposalAad(subscriberPubkeyZ32: myPubkey, proposalId: proposalId)
@@ -880,7 +1023,14 @@ public final class DirectoryService {
         }
         
         // Use canonical v0 path (scope-based)
+        let subscriberScope = try PaykitV0Protocol.subscriberScope(subscriberPubkey)
         let proposalPath = try PaykitV0Protocol.subscriptionProposalPath(subscriberPubkeyZ32: subscriberPubkey, proposalId: proposal.id)
+        Logger.info("Publishing proposal:", context: "DirectoryService")
+        Logger.info("  - homeserverBaseURL: \(homeserverBaseURL ?? "default")", context: "DirectoryService")
+        Logger.info("  - providerPubkey (me): \(providerPubkey)", context: "DirectoryService")
+        Logger.info("  - subscriberPubkey (recipient): \(subscriberPubkey)", context: "DirectoryService")
+        Logger.info("  - subscriberScope (derived from subscriberPubkey): \(subscriberScope)", context: "DirectoryService")
+        Logger.info("  - proposalPath: \(proposalPath)", context: "DirectoryService")
         
         // Build proposal JSON
         var proposalDict: [String: Any] = [

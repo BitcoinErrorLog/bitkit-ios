@@ -10,6 +10,7 @@ extension Notification.Name {
     static let paykitPaymentFailed = Notification.Name("paykitPaymentFailed")
     static let paykitRequestPayment = Notification.Name("paykitRequestPayment")
     static let paykitSubscriptionProposal = Notification.Name("paykitSubscriptionProposal")
+    static let profileUpdated = Notification.Name("profileUpdated")
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {

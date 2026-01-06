@@ -176,24 +176,38 @@ struct ProfileImportView: View {
 
 struct ProfilePreviewCard: View {
     let profile: PubkyProfile
+    var selectedImage: UIImage? = nil
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                // Avatar placeholder
+                // Avatar - show selected image, remote URL, or fallback to initial
                 Circle()
                     .fill(Color.brandAccent.opacity(0.2))
                     .frame(width: 60, height: 60)
                     .overlay {
-                        if let name = profile.name {
-                            Text(String(name.prefix(1)).uppercased())
-                                .font(.title2)
-                                .foregroundColor(.brandAccent)
+                        if let image = selectedImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .clipShape(Circle())
+                        } else if let avatarUrl = profile.avatar, let url = URL(string: avatarUrl) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                        .clipShape(Circle())
+                                default:
+                                    avatarFallback
+                                }
+                            }
                         } else {
-                            Image(systemName: "person.fill")
-                                .foregroundColor(.brandAccent)
+                            avatarFallback
                         }
                     }
+                    .clipShape(Circle())
                 
                 VStack(alignment: .leading, spacing: 4) {
                     if let name = profile.name {
@@ -239,6 +253,18 @@ struct ProfilePreviewCard: View {
         .padding(16)
         .background(Color.gray6)
         .cornerRadius(12)
+    }
+    
+    @ViewBuilder
+    private var avatarFallback: some View {
+        if let name = profile.name, !name.isEmpty {
+            Text(String(name.prefix(1)).uppercased())
+                .font(.title2)
+                .foregroundColor(.brandAccent)
+        } else {
+            Image(systemName: "person.fill")
+                .foregroundColor(.brandAccent)
+        }
     }
 }
 

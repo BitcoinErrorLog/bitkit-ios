@@ -139,6 +139,22 @@ public final class PaykitKeyManager {
         try? keychain.delete(key: Keys.publicKeyZ32)
     }
     
+    /// Clear all identity and device keys
+    public func clearAllKeys() {
+        Logger.info("Clearing all Paykit keys", context: "KeyManager")
+        
+        // Delete all paykit-related keys using bulk delete (handles both namespaces)
+        keychain.deleteAllWithPrefix("paykit.")
+        
+        Logger.info("Cleared all Paykit keys from keychain", context: "KeyManager")
+    }
+    
+    /// Clear cached noise keypairs for all epochs
+    public func clearNoiseKeyCache() {
+        Logger.info("Clearing noise keypair cache", context: "KeyManager")
+        keychain.deleteAllWithPrefix("paykit.noise.")
+    }
+    
     // MARK: - Noise Keypair Cache
     
     private enum NoiseKeypairKeys {
@@ -151,21 +167,30 @@ public final class PaykitKeyManager {
         let epochValue = epoch ?? currentEpoch
         
         guard let secretData = try? keychain.retrieve(key: NoiseKeypairKeys.secretKey(epoch: epochValue)),
-              let publicData = try? keychain.retrieve(key: NoiseKeypairKeys.publicKey(epoch: epochValue)),
-              let secretKey = String(data: secretData, encoding: .utf8),
-              let publicKey = String(data: publicData, encoding: .utf8) else {
+              let publicData = try? keychain.retrieve(key: NoiseKeypairKeys.publicKey(epoch: epochValue)) else {
             return nil
         }
+        
+        // Data is stored as 32-byte binary, convert to hex strings for the keypair struct
+        let secretKey = secretData.hex
+        let publicKey = publicData.hex
         
         return CachedNoiseKeypair(secretKey: secretKey, publicKey: publicKey, epoch: epochValue)
     }
     
     /// Cache noise keypair for an epoch
     public func cacheNoiseKeypair(_ keypair: CachedNoiseKeypair) {
-        try? keychain.store(key: NoiseKeypairKeys.secretKey(epoch: keypair.epoch), 
-                            data: keypair.secretKey.data(using: .utf8)!)
-        try? keychain.store(key: NoiseKeypairKeys.publicKey(epoch: keypair.epoch), 
-                            data: keypair.publicKey.data(using: .utf8)!)
+        // CRITICAL: keypair keys are hex strings (64 chars). Decode to 32-byte binary data.
+        let secretData = keypair.secretKey.hexaData
+        let publicData = keypair.publicKey.hexaData
+        
+        guard secretData.count == 32, publicData.count == 32 else {
+            Logger.warn("Invalid noise keypair lengths: secret=\(secretData.count), public=\(publicData.count)", context: "KeyManager")
+            return
+        }
+        
+        try? keychain.store(key: NoiseKeypairKeys.secretKey(epoch: keypair.epoch), data: secretData)
+        try? keychain.store(key: NoiseKeypairKeys.publicKey(epoch: keypair.epoch), data: publicData)
     }
     
     // MARK: - Private
