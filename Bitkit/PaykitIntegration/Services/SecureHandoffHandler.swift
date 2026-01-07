@@ -63,9 +63,9 @@ public struct SecureHandoffPayload: Codable {
     }
 }
 
-/// Sealed Blob v1 envelope structure (encrypted handoff data)
+/// Sealed Blob v1/v2 envelope structure (encrypted handoff data)
 public struct SealedBlobEnvelope: Codable {
-    public let v: Int
+    public let v: Int  // 1 or 2
     public let epk: String
     public let nonce: String
     public let ct: String
@@ -373,9 +373,12 @@ public final class SecureHandoffHandler {
         }
     }
     
-    /// Check if JSON looks like a sealed blob envelope
+    /// Check if JSON looks like a sealed blob envelope (v1 or v2)
     private func isSealedBlob(_ json: String) -> Bool {
-        json.contains("\"v\":1") || json.contains("\"v\": 1")
+        let hasV1 = json.contains("\"v\":1") || json.contains("\"v\": 1")
+        let hasV2 = json.contains("\"v\":2") || json.contains("\"v\": 2")
+        let hasEpk = json.contains("\"epk\":") || json.contains("\"epk\" :")
+        return (hasV1 || hasV2) && hasEpk
     }
     
     private func buildSetupResult(from payload: SecureHandoffPayload, homeserverURL: String) -> PaykitSetupResult {

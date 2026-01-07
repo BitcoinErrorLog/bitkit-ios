@@ -11,8 +11,10 @@
 // Import PaykitMobile FFI types
 #include "PaykitMobileFFI.h"
 
-// Import PubkyNoise FFI types (from xcframework)
-#include "Frameworks/PubkyNoise.xcframework/ios-arm64/Headers/pubky_noiseFFI.h"
+// Import PubkyNoise FFI types
+// The correct header is found via HEADER_SEARCH_PATHS which are conditionally
+// set for device (ios-arm64) vs simulator (ios-arm64_x86_64-simulator)
+#include "pubky_noiseFFI.h"
 
 #endif /* Bitkit_Bridging_Header_h */
 

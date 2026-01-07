@@ -14,16 +14,26 @@ public class PaymentRequestStorage {
     private let identityName: String
     private let maxRequestsToKeep = 200  // Limit stored requests
     
-    // In-memory cache
+    // In-memory caches
     private var requestsCache: [BitkitPaymentRequest]?
+    private var seenRequestIdsCache: Set<String>?
     
     private var requestsKey: String {
         "paykit.payment_requests.\(identityName)"
     }
     
+    private var seenRequestIdsKey: String {
+        "paykit.payment_requests.seen.\(identityName)"
+    }
+    
     public init(identityName: String? = nil, keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
         self.identityName = identityName ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? "default"
         self.keychain = keychain
+    }
+    
+    public func invalidateCache() {
+        requestsCache = nil
+        seenRequestIdsCache = nil
     }
     
     // MARK: - CRUD Operations
@@ -160,6 +170,44 @@ public class PaymentRequestStorage {
     /// Count of outgoing pending requests
     public func outgoingPendingCount() -> Int {
         return listRequests(direction: .outgoing).filter { $0.status == .pending }.count
+    }
+    
+    // MARK: - Seen IDs (for deduplication)
+    
+    /// Check if a request has been seen (notified about)
+    public func hasSeenRequest(id: String) -> Bool {
+        return getSeenRequestIds().contains(id)
+    }
+    
+    /// Mark a request as seen (prevents duplicate notifications)
+    public func markRequestAsSeen(id: String) throws {
+        var seen = getSeenRequestIds()
+        seen.insert(id)
+        try persistSeenRequestIds(seen)
+    }
+    
+    private func getSeenRequestIds() -> Set<String> {
+        if let cached = seenRequestIdsCache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: seenRequestIdsKey) else {
+                return []
+            }
+            let ids = try JSONDecoder().decode(Set<String>.self, from: data)
+            seenRequestIdsCache = ids
+            return ids
+        } catch {
+            Logger.error("Failed to load seen request IDs: \(error)", context: "PaymentRequestStorage")
+            return []
+        }
+    }
+    
+    private func persistSeenRequestIds(_ ids: Set<String>) throws {
+        let data = try JSONEncoder().encode(ids)
+        try keychain.store(key: seenRequestIdsKey, data: data)
+        seenRequestIdsCache = ids
     }
     
     // MARK: - Private

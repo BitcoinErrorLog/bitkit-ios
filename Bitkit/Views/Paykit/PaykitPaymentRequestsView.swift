@@ -18,7 +18,7 @@ struct PaykitPaymentRequestsView: View {
     @State private var peerFilter: String = ""
     @State private var showingFilters = false
     @State private var selectedRequest: BitkitPaymentRequest? = nil
-    @State private var showingRequestDetail = false
+    @State private var selectedSentRequest: SentPaymentRequest? = nil
     
     enum RequestFilter: String, CaseIterable {
         case all = "All"
@@ -50,25 +50,61 @@ struct PaykitPaymentRequestsView: View {
                 )
             )
             
+            // Tab Picker
+            tabSection
+            
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Direction Filter Picker
-                    filterSection
-                    
-                    // Advanced Filters
-                    if showingFilters {
-                        advancedFiltersSection
-                    }
-                    
-                    // Requests List
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding()
-                    } else if filteredRequests.isEmpty {
-                        emptyStateView
+                    if viewModel.selectedTab == .incoming {
+                        // Discover button
+                        VStack(alignment: .trailing, spacing: 8) {
+                            Button {
+                                Task {
+                                    await viewModel.discoverRequests()
+                                }
+                            } label: {
+                                HStack {
+                                    if viewModel.isDiscovering {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
+                                    } else {
+                                        Image(systemName: "arrow.clockwise")
+                                    }
+                                    Text("Discover from Peers")
+                                }
+                                .foregroundColor(.brandAccent)
+                            }
+                            .disabled(viewModel.isDiscovering)
+                            
+                            if let result = viewModel.discoveryResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundColor(.textSecondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        
+                        // Direction Filter Picker (for incoming tab)
+                        filterSection
+                        
+                        // Advanced Filters
+                        if showingFilters {
+                            advancedFiltersSection
+                        }
+                        
+                        // Requests List
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding()
+                        } else if filteredRequests.isEmpty {
+                            emptyStateView
+                        } else {
+                            requestsList
+                        }
                     } else {
-                        requestsList
+                        // Sent Tab
+                        sentTabContent
                     }
                 }
                 .padding(.horizontal, 16)
@@ -79,6 +115,7 @@ struct PaykitPaymentRequestsView: View {
         .navigationBarHidden(true)
         .onAppear {
             viewModel.loadRequests()
+            viewModel.loadSentRequests()
             
             // Consume pending request ID from notification/deeplink
             if let requestId = app.pendingPaykitRequestId {
@@ -86,22 +123,115 @@ struct PaykitPaymentRequestsView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     if let request = viewModel.requests.first(where: { $0.id == requestId }) {
                         selectedRequest = request
-                        showingRequestDetail = true
                     }
                 }
             }
         }
         .refreshable {
+            await viewModel.discoverRequests()
             viewModel.loadRequests()
+            viewModel.loadSentRequests()
         }
         .sheet(isPresented: $showingCreateRequest) {
             CreatePaymentRequestView(viewModel: viewModel)
         }
-        .sheet(isPresented: $showingRequestDetail) {
-            if let request = selectedRequest {
-                PaymentRequestDetailSheet(request: request, viewModel: viewModel)
+        .sheet(item: $selectedRequest) { request in
+            PaymentRequestDetailSheet(request: request, viewModel: viewModel)
+        }
+        .sheet(item: $selectedSentRequest) { sentRequest in
+            SentRequestDetailSheet(request: sentRequest, viewModel: viewModel)
+        }
+    }
+    
+    private var tabSection: some View {
+        Picker("Tab", selection: $viewModel.selectedTab) {
+            Text("Incoming").tag(PaymentRequestsViewModel.RequestTab.incoming)
+            Text("Sent").tag(PaymentRequestsViewModel.RequestTab.sent)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+    
+    private var sentTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Cleanup orphaned requests button
+            HStack {
+                Spacer()
+                Button {
+                    Task {
+                        _ = await viewModel.cleanupOrphanedRequests()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if viewModel.isCleaningUp {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "trash.circle")
+                        }
+                        BodySText("Cleanup Orphaned")
+                    }
+                    .foregroundColor(.brandAccent)
+                }
+                .disabled(viewModel.isCleaningUp)
+            }
+            
+            if let cleanupResult = viewModel.cleanupResult {
+                BodySText(cleanupResult)
+                    .foregroundColor(.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            
+            if viewModel.sentRequests.isEmpty {
+                sentEmptyStateView
+            } else {
+                sentRequestsList
             }
         }
+    }
+    
+    private var sentEmptyStateView: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "paperplane.circle")
+                .font(.system(size: 80))
+                .foregroundColor(.textSecondary)
+            
+            BodyLText("No Sent Requests")
+                .foregroundColor(.textPrimary)
+            
+            BodyMText("Requests you send will appear here")
+                .foregroundColor(.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+    
+    private var sentRequestsList: some View {
+        VStack(spacing: 0) {
+            ForEach(viewModel.sentRequests) { request in
+                SentRequestRow(
+                    request: request,
+                    onTap: {
+                        selectedSentRequest = request
+                    },
+                    onCancel: {
+                        Task {
+                            await viewModel.cancelSentRequest(request)
+                            app.toast(type: .success, title: "Request cancelled")
+                        }
+                    }
+                )
+                
+                if request.id != viewModel.sentRequests.last?.id {
+                    Divider()
+                        .background(Color.white16)
+                }
+            }
+        }
+        .background(Color.gray6)
+        .cornerRadius(8)
     }
     
     private var hasActiveFilters: Bool {
@@ -202,7 +332,6 @@ struct PaykitPaymentRequestsView: View {
                     viewModel: viewModel,
                     onTap: {
                         selectedRequest = request
-                        showingRequestDetail = true
                     },
                     onPayNow: {
                         initiatePayment(for: request)
@@ -526,7 +655,7 @@ struct PaymentRequestDetailSheet: View {
     @State private var isProcessingPayment = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     headerSection
@@ -855,20 +984,38 @@ struct CreatePaymentRequestView: View {
     @ObservedObject var viewModel: PaymentRequestsViewModel
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var app: AppViewModel
+    @EnvironmentObject private var navigation: NavigationViewModel
     
     @State private var toPubkey = ""
     @State private var amount: Int64 = 1000
     @State private var methodId = "lightning"
     @State private var description = ""
     @State private var expiresInDays: Int = 7
+    @State private var isSending = false
+    @State private var showingContactPicker = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
-                        BodyLText("Recipient")
-                            .foregroundColor(.textPrimary)
+                        HStack {
+                            BodyLText("Recipient")
+                                .foregroundColor(.textPrimary)
+                            
+                            Spacer()
+                            
+                            Button {
+                                showingContactPicker = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.crop.circle")
+                                    Text("Contacts")
+                                }
+                                .foregroundColor(.brandAccent)
+                                .font(.subheadline)
+                            }
+                        }
                         
                         TextField("Recipient Public Key (z-base32)", text: $toPubkey)
                             .foregroundColor(.white)
@@ -925,39 +1072,41 @@ struct CreatePaymentRequestView: View {
                     }
                     
                     Button {
-                        let expiresAt = Calendar.current.date(byAdding: .day, value: expiresInDays, to: Date())
-                        let fromPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? ""
-                        
-                        let request = BitkitPaymentRequest(
-                            id: UUID().uuidString,
-                            fromPubkey: fromPubkey,
-                            toPubkey: toPubkey,
-                            amountSats: amount,
-                            currency: "SAT",
-                            methodId: methodId,
-                            description: description,
-                            createdAt: Date(),
-                            expiresAt: expiresAt,
-                            status: .pending,
-                            direction: .outgoing
-                        )
-                        
-                        do {
-                            try viewModel.addRequest(request)
-                            app.toast(type: .success, title: "Request created")
-                            dismiss()
-                        } catch {
-                            app.toast(error)
+                        isSending = true
+                        Task {
+                            await viewModel.sendPaymentRequest(
+                                recipientPubkey: toPubkey.trimmingCharacters(in: .whitespaces),
+                                amountSats: amount,
+                                methodId: methodId,
+                                description: description,
+                                expiresInDays: expiresInDays
+                            )
+                            isSending = false
+                            
+                            if viewModel.sendSuccess {
+                                viewModel.sendSuccess = false
+                                app.toast(type: .success, title: "Request sent")
+                                dismiss()
+                            } else if let error = viewModel.error {
+                                app.toast(type: .error, title: "Failed to send", description: error)
+                                viewModel.error = nil
+                            }
                         }
                     } label: {
-                        BodyMText("Create Request")
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Color.brandAccent)
-                            .cornerRadius(8)
+                        HStack {
+                            if isSending {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            }
+                            BodyMText(isSending ? "Sending..." : "Send Request")
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.brandAccent)
+                        .cornerRadius(8)
                     }
-                    .disabled(toPubkey.isEmpty || amount <= 0)
+                    .disabled(toPubkey.isEmpty || amount <= 0 || isSending)
                 }
                 .padding(16)
             }
@@ -970,6 +1119,16 @@ struct CreatePaymentRequestView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingContactPicker) {
+                ContactPickerSheet(
+                    onSelect: { contact in
+                        toPubkey = contact.publicKeyZ32
+                    },
+                    onNavigateToDiscovery: {
+                        navigation.navigate(.paykitContactDiscovery)
+                    }
+                )
+            }
         }
     }
 }
@@ -978,20 +1137,145 @@ struct CreatePaymentRequestView: View {
 @MainActor
 class PaymentRequestsViewModel: ObservableObject {
     @Published var requests: [BitkitPaymentRequest] = []
+    @Published var incomingRequests: [BitkitPaymentRequest] = []
+    @Published var outgoingRequests: [BitkitPaymentRequest] = []
+    @Published var sentRequests: [SentPaymentRequest] = []
+    @Published var selectedTab: RequestTab = .incoming
     @Published var isLoading = false
+    @Published var isSending = false
+    @Published var isCleaningUp = false
+    @Published var isDiscovering = false
+    @Published var sendSuccess = false
+    @Published var cleanupResult: String?
+    @Published var discoveryResult: String?
+    @Published var error: String?
     
     private let storage: PaymentRequestStorage
+    private let sentStorage: SentPaymentRequestStorage
+    private let directoryService: DirectoryService
     private let identityName: String
     
-    init(identityName: String = "default") {
-        self.identityName = identityName
-        self.storage = PaymentRequestStorage(identityName: identityName)
+    enum RequestTab {
+        case incoming
+        case sent
+    }
+    
+    init(identityName: String? = nil, directoryService: DirectoryService = .shared) {
+        // Use dynamic identity lookup like we fixed for Dashboard
+        self.identityName = identityName ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? "default"
+        self.storage = PaymentRequestStorage(identityName: self.identityName)
+        self.sentStorage = SentPaymentRequestStorage(identityName: self.identityName)
+        self.directoryService = directoryService
     }
     
     func loadRequests() {
         isLoading = true
         requests = storage.listRequests()
+        incomingRequests = requests.filter { $0.direction == .incoming }
+        outgoingRequests = requests.filter { $0.direction == .outgoing }
         isLoading = false
+    }
+    
+    func loadSentRequests() {
+        sentRequests = sentStorage.listSentRequests()
+    }
+    
+    func discoverRequests() async {
+        isDiscovering = true
+        discoveryResult = nil
+        
+        guard let myPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            discoveryResult = "No identity configured"
+            isDiscovering = false
+            return
+        }
+        
+        Logger.info("=== PAYMENT REQUEST DISCOVERY START ===", context: "PaymentRequestsVM")
+        Logger.info("My full pubkey: \(myPubkey)", context: "PaymentRequestsVM")
+        
+        // Fetch follows from network (same as subscriptions)
+        do {
+            let follows = try await directoryService.fetchFollows()
+            if follows.isEmpty {
+                discoveryResult = "No follows. My pk: \(myPubkey.prefix(12))..."
+                isDiscovering = false
+                return
+            }
+            
+            // Get my scope for debugging
+            let myScope = try? PaykitV0Protocol.recipientScope(myPubkey)
+            Logger.info("My scope (where requests TO ME are stored): \(myScope ?? "?")", context: "PaymentRequestsVM")
+            Logger.info("Follows (peers to check): \(follows)", context: "PaymentRequestsVM")
+            
+            discoveryResult = "Polling \(follows.count) peers..."
+            
+            var discovered = 0
+            for peerPubkey in follows {
+                do {
+                    let discoveredRequests = try await directoryService.discoverPendingRequestsFromPeer(
+                        peerPubkey: peerPubkey,
+                        myPubkey: myPubkey
+                    )
+                    Logger.info("Found \(discoveredRequests.count) requests from \(peerPubkey.prefix(12))...", context: "PaymentRequestsVM")
+                    
+                    for discoveredRequest in discoveredRequests {
+                        // Check if we already have this request
+                        if !self.requests.contains(where: { $0.id == discoveredRequest.requestId }) {
+                            // Convert DiscoveredRequest to BitkitPaymentRequest
+                            let request = BitkitPaymentRequest(
+                                id: discoveredRequest.requestId,
+                                fromPubkey: discoveredRequest.fromPubkey,
+                                toPubkey: myPubkey,
+                                amountSats: discoveredRequest.amountSats,
+                                currency: "SAT",
+                                methodId: "lightning",
+                                description: discoveredRequest.description ?? "",
+                                createdAt: discoveredRequest.createdAt,
+                                expiresAt: nil,
+                                status: .pending,
+                                direction: .incoming
+                            )
+                            try? addRequest(request)
+                            discovered += 1
+                        }
+                    }
+                } catch {
+                    Logger.debug("No requests from \(peerPubkey.prefix(12))...: \(error.localizedDescription)", context: "PaymentRequestsVM")
+                }
+            }
+            
+            if discovered > 0 {
+                discoveryResult = "Found \(discovered) new request(s)"
+            } else {
+                // Check for key sync issues
+                let noiseKeypair = PaykitKeyManager.shared.getCachedNoiseKeypair()
+                let hasNoiseKey = noiseKeypair != nil
+                if !hasNoiseKey {
+                    discoveryResult = "⚠️ No Noise key!\nReconnect to Pubky Ring"
+                } else {
+                    // Check if local key matches published endpoint
+                    var keySyncIssue = false
+                    if let publishedEndpoint = try? await directoryService.discoverNoiseEndpoint(for: myPubkey) {
+                        if publishedEndpoint.serverNoisePubkey != noiseKeypair?.publicKey {
+                            keySyncIssue = true
+                            Logger.error("Key sync issue: local key doesn't match published endpoint", context: "PaymentRequestsVM")
+                        }
+                    }
+                    
+                    if keySyncIssue {
+                        discoveryResult = "⚠️ Key sync issue!\nReconnect to Pubky Ring to fix"
+                    } else {
+                        discoveryResult = "0 requests found.\n\(follows.count) follows checked"
+                    }
+                }
+            }
+            
+            loadRequests()
+        } catch {
+            discoveryResult = "Error: \(error.localizedDescription)"
+        }
+        
+        isDiscovering = false
     }
     
     func addRequest(_ request: BitkitPaymentRequest) throws {
@@ -1007,6 +1291,567 @@ class PaymentRequestsViewModel: ObservableObject {
     func deleteRequest(_ request: BitkitPaymentRequest) throws {
         try storage.deleteRequest(id: request.id)
         loadRequests()
+    }
+    
+    func sendPaymentRequest(
+        recipientPubkey: String,
+        amountSats: Int64,
+        methodId: String,
+        description: String,
+        expiresInDays: Int = 7
+    ) async {
+        isSending = true
+        error = nil
+        
+        guard let senderPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            error = "No identity configured"
+            isSending = false
+            return
+        }
+        
+        let requestId = UUID().uuidString
+        let expiresAt = Calendar.current.date(byAdding: .day, value: expiresInDays, to: Date())
+        
+        let request = BitkitPaymentRequest(
+            id: requestId,
+            fromPubkey: senderPubkey,
+            toPubkey: recipientPubkey,
+            amountSats: amountSats,
+            currency: "SAT",
+            methodId: methodId,
+            description: description,
+            createdAt: Date(),
+            expiresAt: expiresAt,
+            status: .pending,
+            direction: .outgoing
+        )
+        
+        do {
+            // Publish encrypted request to homeserver
+            try await DirectoryService.shared.publishPaymentRequest(request, recipientPubkey: recipientPubkey)
+            
+            // Save to local storage
+            try storage.addRequest(request)
+            
+            // Track for cleanup purposes
+            sentStorage.saveSentRequest(
+                requestId: requestId,
+                recipientPubkey: recipientPubkey,
+                amountSats: amountSats,
+                methodId: methodId,
+                description: description
+            )
+            
+            loadRequests()
+            loadSentRequests()
+            sendSuccess = true
+            Logger.info("Sent payment request \(requestId) to \(recipientPubkey.prefix(12))...", context: "PaymentRequestsVM")
+        } catch {
+            self.error = error.localizedDescription
+            Logger.error("Failed to send payment request: \(error)", context: "PaymentRequestsVM")
+        }
+        
+        isSending = false
+    }
+    
+    func cancelSentRequest(_ request: SentPaymentRequest) async {
+        do {
+            // Delete from homeserver
+            try await DirectoryService.shared.deletePaymentRequest(
+                requestId: request.id,
+                recipientPubkey: request.recipientPubkey
+            )
+            // Delete from local tracking
+            sentStorage.deleteSentRequest(id: request.id)
+            // Also remove from main requests list if exists
+            try? storage.deleteRequest(id: request.id)
+            
+            loadRequests()
+            loadSentRequests()
+            Logger.info("Cancelled sent request: \(request.id)", context: "PaymentRequestsVM")
+        } catch {
+            self.error = error.localizedDescription
+            Logger.error("Failed to cancel sent request: \(error)", context: "PaymentRequestsVM")
+        }
+    }
+    
+    func cleanupOrphanedRequests() async -> Int {
+        isCleaningUp = true
+        cleanupResult = nil
+        
+        let trackedIdsByRecipient = sentStorage.getSentRequestsByRecipient()
+        guard !trackedIdsByRecipient.isEmpty else {
+            isCleaningUp = false
+            cleanupResult = "No sent requests to check"
+            return 0
+        }
+        
+        var totalDeleted = 0
+        
+        for (recipientPubkey, trackedIds) in trackedIdsByRecipient {
+            do {
+                let homeserverIds = try await DirectoryService.shared.listRequestsOnHomeserver(
+                    recipientPubkey: recipientPubkey
+                )
+                let orphanedIds = homeserverIds.filter { !trackedIds.contains($0) }
+                if !orphanedIds.isEmpty {
+                    let deleted = await DirectoryService.shared.deleteRequestsBatch(
+                        requestIds: orphanedIds,
+                        recipientPubkey: recipientPubkey
+                    )
+                    totalDeleted += deleted
+                }
+            } catch {
+                Logger.warn("Failed to check requests for \(recipientPubkey.prefix(12))...: \(error)", context: "PaymentRequestsVM")
+            }
+        }
+        
+        let message = totalDeleted > 0 ? "Cleaned up \(totalDeleted) orphaned requests" : "No orphaned requests found"
+        cleanupResult = message
+        isCleaningUp = false
+        Logger.info(message, context: "PaymentRequestsVM")
+        return totalDeleted
+    }
+}
+
+// MARK: - Sent Request Row
+
+struct SentRequestRow: View {
+    let request: SentPaymentRequest
+    var onTap: () -> Void = {}
+    var onCancel: () -> Void = {}
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundColor(.brandAccent)
+                    .font(.title2)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        BodyMBoldText(truncatePubkey(request.recipientPubkey))
+                            .foregroundColor(.white)
+                        
+                        Spacer()
+                        
+                        SentStatusBadge(status: request.status)
+                    }
+                    
+                    BodyMText("\(formatSats(request.amountSats))")
+                        .foregroundColor(.white)
+                    
+                    HStack(spacing: 8) {
+                        BodySText(request.methodId.capitalized)
+                            .foregroundColor(.textSecondary)
+                        
+                        if let description = request.description, !description.isEmpty {
+                            BodySText("• \(description)")
+                                .foregroundColor(.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    
+                    BodySText("Sent \(formatRelativeDate(request.sentAt))")
+                        .foregroundColor(.textSecondary)
+                }
+                
+                Spacer()
+                
+                if request.status == .pending {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.redAccent)
+                            .font(.title3)
+                    }
+                }
+                
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.textSecondary)
+                    .font(.caption)
+            }
+            .padding(16)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func formatSats(_ amount: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return "\(formatter.string(from: NSNumber(value: amount)) ?? "\(amount)") sats"
+    }
+    
+    private func truncatePubkey(_ pubkey: String) -> String {
+        guard pubkey.count > 16 else { return pubkey }
+        return "\(pubkey.prefix(8))...\(pubkey.suffix(8))"
+    }
+    
+    private func formatRelativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+struct SentStatusBadge: View {
+    let status: SentPaymentRequest.SentRequestStatus
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            statusIcon
+            BodySText(status.rawValue.capitalized)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(statusColor)
+        .cornerRadius(8)
+    }
+    
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch status {
+        case .pending:
+            Image(systemName: "clock")
+                .font(.caption2)
+        case .paid:
+            Image(systemName: "checkmark.seal.fill")
+                .font(.caption2)
+        case .expired:
+            Image(systemName: "clock.badge.exclamationmark")
+                .font(.caption2)
+        }
+    }
+    
+    private var statusColor: Color {
+        switch status {
+        case .pending: return .orange
+        case .paid: return .greenAccent
+        case .expired: return .gray2
+        }
+    }
+}
+
+// MARK: - Sent Request Detail Sheet
+
+struct SentRequestDetailSheet: View {
+    let request: SentPaymentRequest
+    @ObservedObject var viewModel: PaymentRequestsViewModel
+    @EnvironmentObject private var app: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    headerSection
+                    statusSection
+                    recipientSection
+                    methodSection
+                    
+                    if let description = request.description, !description.isEmpty {
+                        descriptionSection(description)
+                    }
+                    
+                    if request.status == .pending {
+                        actionsSection
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color.gray5)
+            .navigationTitle("Sent Request Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private var headerSection: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.brandAccent.opacity(0.2))
+                    .frame(width: 72, height: 72)
+                
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundColor(.brandAccent)
+            }
+            
+            HeadlineText(formatSats(request.amountSats))
+                .foregroundColor(.white)
+            
+            if let description = request.description, !description.isEmpty {
+                BodyMText(description)
+                    .foregroundColor(.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BodyMBoldText("Status")
+                .foregroundColor(.textSecondary)
+            
+            HStack {
+                SentStatusBadge(status: request.status)
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    BodySText("Sent")
+                        .foregroundColor(.textSecondary)
+                    BodySText(formatDate(request.sentAt))
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+    }
+    
+    private var recipientSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BodyMBoldText("Recipient")
+                .foregroundColor(.textSecondary)
+            
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandAccent.opacity(0.2))
+                        .frame(width: 44, height: 44)
+                    
+                    Text(String(request.recipientPubkey.prefix(1)).uppercased())
+                        .font(.headline)
+                        .foregroundColor(.brandAccent)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    BodyMBoldText(truncatePubkey(request.recipientPubkey))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                Button {
+                    UIPasteboard.general.string = request.recipientPubkey
+                    app.toast(type: .success, title: "Copied to clipboard")
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .foregroundColor(.brandAccent)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+    }
+    
+    private var methodSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BodyMBoldText("Payment Method")
+                .foregroundColor(.textSecondary)
+            
+            HStack {
+                Image(systemName: methodIcon)
+                    .foregroundColor(.brandAccent)
+                
+                BodyMText(request.methodId.capitalized)
+                    .foregroundColor(.white)
+                
+                Spacer()
+            }
+        }
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+    }
+    
+    private var methodIcon: String {
+        switch request.methodId.lowercased() {
+        case "lightning": return "bolt.fill"
+        case "onchain", "bitcoin": return "bitcoinsign.circle.fill"
+        case "noise": return "antenna.radiowaves.left.and.right"
+        default: return "creditcard.fill"
+        }
+    }
+    
+    private func descriptionSection(_ description: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BodyMBoldText("Description")
+                .foregroundColor(.textSecondary)
+            
+            BodyMText(description)
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.gray6)
+        .cornerRadius(12)
+    }
+    
+    private var actionsSection: some View {
+        Button {
+            Task {
+                await viewModel.cancelSentRequest(request)
+                app.toast(type: .success, title: "Request cancelled")
+                dismiss()
+            }
+        } label: {
+            HStack {
+                Image(systemName: "xmark.circle")
+                BodyMBoldText("Cancel Request")
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(Color.redAccent)
+            .cornerRadius(12)
+        }
+    }
+    
+    private func formatSats(_ amount: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return "\(formatter.string(from: NSNumber(value: amount)) ?? "\(amount)") sats"
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+    
+    private func truncatePubkey(_ pubkey: String) -> String {
+        guard pubkey.count > 16 else { return pubkey }
+        return "\(pubkey.prefix(8))...\(pubkey.suffix(8))"
+    }
+}
+
+// MARK: - Sent Payment Request Model
+
+struct SentPaymentRequest: Codable, Identifiable, Hashable {
+    let id: String
+    let recipientPubkey: String
+    let amountSats: Int64
+    let methodId: String
+    let description: String?
+    let sentAt: Date
+    var status: SentRequestStatus
+    
+    enum SentRequestStatus: String, Codable, Hashable {
+        case pending
+        case paid
+        case expired
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: SentPaymentRequest, rhs: SentPaymentRequest) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+// MARK: - Sent Payment Request Storage
+
+class SentPaymentRequestStorage {
+    private let keychain: PaykitKeychainStorage
+    private let identityName: String
+    
+    private var sentRequestsKey: String {
+        "paykit.sent_requests.\(identityName)"
+    }
+    
+    private var cache: [SentPaymentRequest]?
+    
+    init(identityName: String, keychain: PaykitKeychainStorage = PaykitKeychainStorage()) {
+        self.identityName = identityName
+        self.keychain = keychain
+    }
+    
+    func listSentRequests() -> [SentPaymentRequest] {
+        if let cached = cache {
+            return cached
+        }
+        
+        do {
+            guard let data = try keychain.retrieve(key: sentRequestsKey) else {
+                return []
+            }
+            let requests = try JSONDecoder().decode([SentPaymentRequest].self, from: data)
+                .sorted { $0.sentAt > $1.sentAt }
+            cache = requests
+            return requests
+        } catch {
+            Logger.error("Failed to load sent requests: \(error)", context: "SentPaymentRequestStorage")
+            return []
+        }
+    }
+    
+    func saveSentRequest(
+        requestId: String,
+        recipientPubkey: String,
+        amountSats: Int64,
+        methodId: String,
+        description: String?
+    ) {
+        var requests = listSentRequests()
+        guard !requests.contains(where: { $0.id == requestId }) else { return }
+        
+        requests.insert(
+            SentPaymentRequest(
+                id: requestId,
+                recipientPubkey: recipientPubkey,
+                amountSats: amountSats,
+                methodId: methodId,
+                description: description,
+                sentAt: Date(),
+                status: .pending
+            ),
+            at: 0
+        )
+        persistRequests(requests)
+    }
+    
+    func deleteSentRequest(id: String) {
+        var requests = listSentRequests()
+        requests.removeAll { $0.id == id }
+        persistRequests(requests)
+    }
+    
+    func getSentRequestsByRecipient() -> [String: Set<String>] {
+        var result: [String: Set<String>] = [:]
+        for request in listSentRequests() {
+            if result[request.recipientPubkey] == nil {
+                result[request.recipientPubkey] = []
+            }
+            result[request.recipientPubkey]?.insert(request.id)
+        }
+        return result
+    }
+    
+    private func persistRequests(_ requests: [SentPaymentRequest]) {
+        do {
+            let data = try JSONEncoder().encode(requests)
+            try keychain.store(key: sentRequestsKey, data: data)
+            cache = requests
+        } catch {
+            Logger.error("Failed to persist sent requests: \(error)", context: "SentPaymentRequestStorage")
+        }
     }
 }
 

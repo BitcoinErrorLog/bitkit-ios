@@ -620,6 +620,100 @@ public final class DirectoryService {
     
     // MARK: - Payment Request Operations
     
+    /// Publish a payment request to our Pubky storage for the recipient to discover.
+    ///
+    /// The request is stored ENCRYPTED at the canonical v0 path:
+    /// `/pub/paykit.app/v0/requests/{recipient_scope}/{requestId}`
+    /// on the sender's homeserver so the recipient can poll contacts to fetch it.
+    ///
+    /// SECURITY: Requests are encrypted using Sealed Blob v1 to recipient's Noise public key.
+    /// Uses canonical AAD format: `paykit:v0:request:{path}:{requestId}`
+    ///
+    /// - Parameters:
+    ///   - request: The payment request to publish
+    ///   - recipientPubkey: The pubkey of the recipient (who should process the request)
+    /// - Throws: DirectoryError.notConfigured if session is not configured
+    /// - Throws: DirectoryError.publishFailed if the publish operation fails
+    /// - Throws: DirectoryError.encryptionFailed if encryption fails (e.g., recipient has no Noise endpoint)
+    public func publishPaymentRequest(_ request: BitkitPaymentRequest, recipientPubkey: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        // Get our identity pubkey (sender)
+        guard let senderPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            throw DirectoryError.notConfigured
+        }
+        
+        // Use canonical v0 path (scope-based)
+        let path = try PaykitV0Protocol.paymentRequestPath(recipientPubkeyZ32: recipientPubkey, requestId: request.id)
+        let recipientScope = try PaykitV0Protocol.recipientScope(recipientPubkey)
+        
+        Logger.info("Publishing payment request:", context: "DirectoryService")
+        Logger.info("  - senderPubkey (me): \(senderPubkey)", context: "DirectoryService")
+        Logger.info("  - recipientPubkey: \(recipientPubkey)", context: "DirectoryService")
+        Logger.info("  - recipientScope (derived from recipientPubkey): \(recipientScope)", context: "DirectoryService")
+        Logger.info("  - full path: \(path)", context: "DirectoryService")
+        Logger.info("  - requestId: \(request.id)", context: "DirectoryService")
+        
+        // Build request JSON
+        var requestDict: [String: Any] = [
+            "from_pubkey": senderPubkey,
+            "to_pubkey": recipientPubkey,
+            "amount_sats": request.amountSats,
+            "currency": request.currency,
+            "method_id": request.methodId,
+            "description": request.description,
+            "created_at": Int64(request.createdAt.timeIntervalSince1970)
+        ]
+        if let expiresAt = request.expiresAt {
+            requestDict["expires_at"] = Int64(expiresAt.timeIntervalSince1970)
+        }
+        
+        let requestData = try JSONSerialization.data(withJSONObject: requestDict)
+        
+        // Discover recipient's Noise endpoint to get their public key for encryption
+        guard let recipientNoiseEndpoint = try await discoverNoiseEndpoint(for: recipientPubkey) else {
+            throw DirectoryError.encryptionFailed("Recipient has no Noise endpoint published")
+        }
+        
+        // Get recipient's Noise public key as bytes
+        guard let recipientNoisePkBytes = Data(hex: recipientNoiseEndpoint.serverNoisePubkey) else {
+            throw DirectoryError.encryptionFailed("Invalid recipient Noise public key format")
+        }
+        
+        // Build canonical AAD
+        let aad = try PaykitV0Protocol.paymentRequestAad(recipientPubkeyZ32: recipientPubkey, requestId: request.id)
+        
+        Logger.info("Encrypting request \(request.id):", context: "DirectoryService")
+        Logger.info("  - recipientPubkey: \(recipientPubkey)", context: "DirectoryService")
+        Logger.info("  - recipientNoisePk (first 16 hex): \(recipientNoiseEndpoint.serverNoisePubkey.prefix(32))...", context: "DirectoryService")
+        Logger.info("  - AAD: \(aad)", context: "DirectoryService")
+        
+        // Encrypt request using Sealed Blob v1 with canonical AAD
+        let encryptedEnvelope: String
+        do {
+            encryptedEnvelope = try sealedBlobEncrypt(
+                recipientPk: recipientNoisePkBytes,
+                plaintext: requestData,
+                aad: aad,
+                purpose: PaykitV0Protocol.purposeRequest
+            )
+        } catch {
+            Logger.error("Failed to encrypt payment request: \(error)", context: "DirectoryService")
+            throw DirectoryError.encryptionFailed("Encryption failed: \(error.localizedDescription)")
+        }
+        
+        // Publish to homeserver
+        let result = adapter.put(path: path, content: encryptedEnvelope)
+        if !result.success {
+            Logger.error("Failed to publish payment request: \(result.error ?? "Unknown")", context: "DirectoryService")
+            throw DirectoryError.publishFailed(result.error ?? "Unknown error")
+        }
+        
+        Logger.info("Published encrypted payment request \(request.id) to \(recipientPubkey.prefix(12))...", context: "DirectoryService")
+    }
+    
     /// Fetch a payment request from a sender's Pubky storage.
     ///
     /// Retrieves and decrypts from: `pubky://{senderPubkey}/pub/paykit.app/v0/requests/{scope}/{requestId}`
@@ -719,6 +813,76 @@ public final class DirectoryService {
         Logger.info("Removed payment request: \(requestId)", context: "DirectoryService")
     }
     
+    /// List all payment request IDs on the homeserver for a specific recipient scope.
+    ///
+    /// Used by the sender to find orphaned requests that exist on the homeserver
+    /// but aren't tracked locally (e.g., from previous sessions or failed deletions).
+    ///
+    /// - Parameter recipientPubkey: The recipient's z32 pubkey
+    /// - Returns: Array of request IDs found on the homeserver
+    public func listRequestsOnHomeserver(recipientPubkey: String) async throws -> [String] {
+        guard let myPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32(),
+              authenticatedAdapter != nil else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let unauthAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: baseURL)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        let requestsPath = try PaykitV0Protocol.paymentRequestsDir(recipientPubkeyZ32: recipientPubkey)
+        
+        do {
+            let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: myPubkey)
+            Logger.info("Found \(requestFiles.count) requests on homeserver for recipient \(recipientPubkey.prefix(12))...", context: "DirectoryService")
+            return requestFiles
+        } catch {
+            Logger.debug("No requests directory found for recipient \(recipientPubkey.prefix(12))...", context: "DirectoryService")
+            return []
+        }
+    }
+    
+    /// Delete a payment request from OUR storage (batch cleanup).
+    ///
+    /// Used when the sender wants to cancel a pending request they sent.
+    ///
+    /// - Parameters:
+    ///   - requestId: The request ID to delete
+    ///   - recipientPubkey: The recipient pubkey (used for scope computation)
+    public func deletePaymentRequest(requestId: String, recipientPubkey: String) async throws {
+        guard let adapter = authenticatedAdapter else {
+            throw DirectoryError.notConfigured
+        }
+        
+        let path = try PaykitV0Protocol.paymentRequestPath(recipientPubkeyZ32: recipientPubkey, requestId: requestId)
+        let pubkyStorage = PubkyStorageAdapter.shared
+        
+        try await pubkyStorage.deleteFile(path: path, adapter: adapter)
+        Logger.info("Deleted payment request: \(requestId) for recipient \(recipientPubkey.prefix(12))...", context: "DirectoryService")
+    }
+    
+    /// Delete multiple payment requests from OUR storage (batch cleanup).
+    ///
+    /// Used to clean up orphaned requests that exist on the homeserver
+    /// but aren't tracked locally.
+    ///
+    /// - Parameters:
+    ///   - requestIds: Array of request IDs to delete
+    ///   - recipientPubkey: The recipient pubkey (used for scope computation)
+    /// - Returns: Number of successfully deleted requests
+    public func deleteRequestsBatch(requestIds: [String], recipientPubkey: String) async -> Int {
+        var deleted = 0
+        for requestId in requestIds {
+            do {
+                try await deletePaymentRequest(requestId: requestId, recipientPubkey: recipientPubkey)
+                deleted += 1
+            } catch {
+                Logger.warn("Failed to delete request \(requestId): \(error)", context: "DirectoryService")
+            }
+        }
+        return deleted
+    }
+    
     /// Delete a subscription proposal from OUR storage (as provider).
     ///
     /// Used when the provider wants to cancel a pending proposal they sent.
@@ -809,15 +973,24 @@ public final class DirectoryService {
         let myScope = try PaykitV0Protocol.recipientScope(myPubkey)
         let requestsPath = "\(PaykitV0Protocol.paykitV0Prefix)/\(PaykitV0Protocol.requestsSubpath)/\(myScope)/"
         
-        Logger.debug("Discovering requests: baseURL=\(baseURL), peer=\(peerPubkey.prefix(12))..., path=\(requestsPath)", context: "DirectoryService")
+        Logger.info("Discovering payment requests:", context: "DirectoryService")
+        Logger.info("  - baseURL: \(baseURL)", context: "DirectoryService")
+        Logger.info("  - peerPubkey (owner of storage): \(peerPubkey)", context: "DirectoryService")
+        Logger.info("  - myPubkey (recipient): \(myPubkey)", context: "DirectoryService")
+        Logger.info("  - myScope (derived from myPubkey): \(myScope)", context: "DirectoryService")
+        Logger.info("  - full path being listed: \(requestsPath)", context: "DirectoryService")
         
         do {
             let requestFiles = try await pubkyStorage.listDirectory(path: requestsPath, adapter: unauthAdapter, ownerPubkey: peerPubkey)
+            Logger.info("List result: \(requestFiles.count) entries found: \(requestFiles)", context: "DirectoryService")
             
             var requests: [DiscoveredRequest] = []
             for requestId in requestFiles {
                 if let request = await decryptAndParsePaymentRequest(requestId: requestId, path: requestsPath + requestId, adapter: unauthAdapter, peerPubkey: peerPubkey, myPubkey: myPubkey) {
                     requests.append(request)
+                    Logger.info("Successfully decrypted request: \(requestId)", context: "DirectoryService")
+                } else {
+                    Logger.warn("Failed to decrypt request: \(requestId)", context: "DirectoryService")
                 }
             }
             return requests
@@ -895,6 +1068,21 @@ public final class DirectoryService {
             }
             
             let aad = try PaykitV0Protocol.paymentRequestAad(recipientPubkeyZ32: myPubkey, requestId: requestId)
+            
+            Logger.info("Decrypting request \(requestId):", context: "DirectoryService")
+            Logger.info("  - myPubkey: \(myPubkey)", context: "DirectoryService")
+            Logger.info("  - myNoisePk (first 16 hex): \(noiseKeypair.publicKey.prefix(32))...", context: "DirectoryService")
+            Logger.info("  - epoch: \(noiseKeypair.epoch)", context: "DirectoryService")
+            Logger.info("  - AAD: \(aad)", context: "DirectoryService")
+            
+            // Check if our local key matches the published endpoint (key sync issue detection)
+            if let publishedEndpoint = try? await discoverNoiseEndpoint(for: myPubkey) {
+                if publishedEndpoint.serverNoisePubkey != noiseKeypair.publicKey {
+                    Logger.error("KEY MISMATCH: Local key \(noiseKeypair.publicKey.prefix(16))... != published \(publishedEndpoint.serverNoisePubkey.prefix(16))...", context: "DirectoryService")
+                    Logger.error("Senders are encrypting with published key but we have a different local key!", context: "DirectoryService")
+                    Logger.error("Please reconnect to Pubky Ring to fix key sync", context: "DirectoryService")
+                }
+            }
             
             let plaintextData = try sealedBlobDecrypt(
                 recipientSk: myNoiseSk,

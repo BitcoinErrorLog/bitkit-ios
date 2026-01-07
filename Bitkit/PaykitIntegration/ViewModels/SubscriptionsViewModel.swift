@@ -231,20 +231,21 @@ class SubscriptionsViewModel: ObservableObject {
     func cleanupOrphanedProposals() async -> Int {
         Logger.info("Starting orphaned proposal cleanup", context: "SubscriptionsVM")
         
-        // Get all unique recipient pubkeys from our sent proposals
+        // Get all sent proposals and group tracked IDs by recipient
+        // This prevents cross-recipient false matches where proposal IDs could theoretically collide
         let sentProposals = subscriptionStorage.listSentProposals()
-        let trackedProposalIds = Set(sentProposals.map { $0.id })
-        let recipientPubkeys = Set(sentProposals.map { $0.recipientPubkey })
+        let trackedIdsByRecipient = Dictionary(grouping: sentProposals, by: { $0.recipientPubkey })
+            .mapValues { Set($0.map { $0.id }) }
         
         var totalDeleted = 0
         
-        for recipientPubkey in recipientPubkeys {
+        for (recipientPubkey, trackedIds) in trackedIdsByRecipient {
             do {
                 // List all proposals on homeserver for this recipient
                 let homeserverProposals = try await directoryService.listProposalsOnHomeserver(subscriberPubkey: recipientPubkey)
                 
-                // Find orphaned proposals (on homeserver but not tracked locally)
-                let orphanedIds = homeserverProposals.filter { !trackedProposalIds.contains($0) }
+                // Find orphaned proposals (on homeserver but not tracked locally for THIS recipient)
+                let orphanedIds = homeserverProposals.filter { !trackedIds.contains($0) }
                 
                 if !orphanedIds.isEmpty {
                     Logger.info("Found \(orphanedIds.count) orphaned proposals for \(recipientPubkey.prefix(12))...", context: "SubscriptionsVM")

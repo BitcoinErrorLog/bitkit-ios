@@ -25,6 +25,8 @@ xcodebuild test -scheme Bitkit -destination 'platform=iOS Simulator,name=iPhone 
 - `SpendingLimitManagerTests.swift` - Spending limits
 - `AutoPayStorageTests.swift` - Auto-pay rules
 - `PubkyRingBridgeTests.swift` - Pubky-ring integration
+- `SubscriptionProposalTests.swift` - Subscription proposal workflows
+- `PaymentRequestsViewModelTests.swift` - Payment request workflows (send/cancel/cleanup)
 
 ### 2. Integration Tests
 
@@ -121,6 +123,22 @@ The E2E test suite automatically creates a test wallet if needed. For manual tes
 - [ ] Verify request appears in list
 - [ ] Pay the request from another wallet
 - [ ] Verify payment receipt created
+
+### Sent Payment Requests (Outgoing)
+
+The sender-storage model means requests are stored on the **sender's** homeserver:
+
+- [ ] Navigate to Payment Requests → Sent tab
+- [ ] Create new request (specify recipient, amount, method)
+- [ ] Verify request appears in Sent list with status "Pending"
+- [ ] Cancel a sent request → verify removed from Sent tab
+- [ ] Cleanup orphaned requests → verify orphans (homeserver only) deleted
+
+**Orphan Cleanup Flow:**
+1. List all sent requests grouped by recipient
+2. For each recipient, list requests on homeserver
+3. Delete requests on homeserver not in local tracking
+4. Critical: only compare within same recipient scope (prevents cross-recipient false matches)
 
 ### Subscription Flow
 

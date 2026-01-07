@@ -12,7 +12,6 @@ struct PaykitSubscriptionsView: View {
     @EnvironmentObject private var app: AppViewModel
     @State private var selectedTab: SubscriptionTab = .active
     @State private var selectedSubscription: BitkitSubscription? = nil
-    @State private var showingDetail = false
     @State private var isCleaningUp = false
     @State private var cleanupResult: String? = nil
     
@@ -90,7 +89,6 @@ struct PaykitSubscriptionsView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     if let sub = viewModel.subscriptions.first(where: { $0.id == subscriptionId }) {
                         selectedSubscription = sub
-                        showingDetail = true
                     } else if viewModel.proposals.contains(where: { $0.id == subscriptionId }) {
                         selectedTab = .proposals
                     }
@@ -106,10 +104,8 @@ struct PaykitSubscriptionsView: View {
         .sheet(isPresented: $viewModel.showingAddSubscription) {
             AddSubscriptionView(viewModel: viewModel)
         }
-        .sheet(isPresented: $showingDetail) {
-            if let subscription = selectedSubscription {
-                SubscriptionDetailSheet(subscription: subscription, viewModel: viewModel)
-            }
+        .sheet(item: $selectedSubscription) { subscription in
+            SubscriptionDetailSheet(subscription: subscription, viewModel: viewModel)
         }
     }
     
@@ -190,7 +186,6 @@ struct PaykitSubscriptionsView: View {
             ForEach(viewModel.subscriptions) { subscription in
                 Button {
                     selectedSubscription = subscription
-                    showingDetail = true
                 } label: {
                     SubscriptionRow(subscription: subscription, viewModel: viewModel)
                 }
@@ -771,7 +766,7 @@ struct SubscriptionDetailSheet: View {
     @State private var showingSpendingLimit = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     headerSection
@@ -782,6 +777,7 @@ struct SubscriptionDetailSheet: View {
                 }
                 .padding(20)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.gray5)
             .navigationTitle("Subscription Details")
             .navigationBarTitleDisplayMode(.inline)
@@ -790,8 +786,11 @@ struct SubscriptionDetailSheet: View {
                     Button("Close") {
                         dismiss()
                     }
+                    .foregroundColor(.brandAccent)
                 }
             }
+            .toolbarBackground(Color.gray6, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .sheet(isPresented: $showingSpendingLimit) {
             EditSpendingLimitSheet(subscription: subscription, viewModel: viewModel)
@@ -1015,7 +1014,7 @@ struct EditSpendingLimitSheet: View {
     @State private var requireConfirmation = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1080,6 +1079,8 @@ struct EditSpendingLimitSheet: View {
                 }
                 .padding(16)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.gray5)
             .navigationTitle("Spending Limit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1087,8 +1088,11 @@ struct EditSpendingLimitSheet: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundColor(.brandAccent)
                 }
             }
+            .toolbarBackground(Color.gray6, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .onAppear {
             if let existing = subscription.spendingLimit {
@@ -1236,7 +1240,7 @@ struct AddSubscriptionView: View {
     @State private var showingContactPicker = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -1347,6 +1351,8 @@ struct AddSubscriptionView: View {
                 }
                 .padding(16)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.gray5)
             .navigationTitle("Create Subscription Proposal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1355,8 +1361,11 @@ struct AddSubscriptionView: View {
                         viewModel.resetSendState()
                         dismiss()
                     }
+                    .foregroundColor(.brandAccent)
                 }
             }
+            .toolbarBackground(Color.gray6, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .onChange(of: viewModel.sendSuccess) { success in
                 if success {
                     app.toast(type: .success, title: "Proposal sent!")

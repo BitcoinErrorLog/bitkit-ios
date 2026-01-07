@@ -20,14 +20,11 @@ struct PaykitDashboardView: View {
             
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Stats Section
-                    statsSection
+                    // Overview Section (stats + tappable)
+                    overviewSection
                     
-                    // Quick Access Section
-                    quickAccessSection
-                    
-                    // Payments Section
-                    paymentsSection
+                    // Actions Section (consolidated)
+                    actionsSection
                     
                     // Identity & Security Section
                     identitySection
@@ -55,7 +52,7 @@ struct PaykitDashboardView: View {
         }
     }
     
-    private var statsSection: some View {
+    private var overviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             BodyLText("Overview")
                 .foregroundColor(.textSecondary)
@@ -77,26 +74,30 @@ struct PaykitDashboardView: View {
             }
             
             HStack(spacing: 12) {
-                StatCard(
+                TappableStatCard(
                     title: "Contacts",
                     value: "\(viewModel.contactCount)",
                     icon: "person.2.fill",
                     color: .blue
-                )
+                ) {
+                    navigation.navigate(.paykitContacts)
+                }
                 
-                StatCard(
-                    title: "Pending",
-                    value: "\(viewModel.pendingCount)",
-                    icon: "clock.fill",
-                    color: .orange
-                )
+                TappableStatCard(
+                    title: "Subscriptions",
+                    value: "\(viewModel.activeSubscriptions)",
+                    icon: "repeat.circle.fill",
+                    color: .purple
+                ) {
+                    navigation.navigate(.paykitSubscriptions)
+                }
             }
         }
     }
     
-    private var quickAccessSection: some View {
+    private var actionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            BodyLText("Quick Access")
+            BodyLText("Actions")
                 .foregroundColor(.textSecondary)
             
             HStack(spacing: 12) {
@@ -110,24 +111,6 @@ struct PaykitDashboardView: View {
                 }
                 
                 QuickAccessCard(
-                    title: "Subscriptions",
-                    icon: "repeat.circle.fill",
-                    color: .blue,
-                    badge: viewModel.activeSubscriptions > 0 ? "\(viewModel.activeSubscriptions)" : nil
-                ) {
-                    navigation.navigate(.paykitSubscriptions)
-                }
-            }
-        }
-    }
-    
-    private var paymentsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            BodyLText("Payments")
-                .foregroundColor(.textSecondary)
-            
-            HStack(spacing: 12) {
-                QuickAccessCard(
                     title: "Payment Requests",
                     icon: "arrow.down.doc.fill",
                     color: .green,
@@ -135,7 +118,9 @@ struct PaykitDashboardView: View {
                 ) {
                     navigation.navigate(.paykitPaymentRequests)
                 }
-                
+            }
+            
+            HStack(spacing: 12) {
                 QuickAccessCard(
                     title: "Noise Payment",
                     icon: "waveform.circle.fill",
@@ -143,17 +128,6 @@ struct PaykitDashboardView: View {
                     badge: nil
                 ) {
                     navigation.navigate(.paykitNoisePayment)
-                }
-            }
-            
-            HStack(spacing: 12) {
-                QuickAccessCard(
-                    title: "Contacts",
-                    icon: "person.crop.circle.fill",
-                    color: .cyan,
-                    badge: viewModel.contactCount > 0 ? "\(viewModel.contactCount)" : nil
-                ) {
-                    navigation.navigate(.paykitContacts)
                 }
                 
                 QuickAccessCard(
@@ -366,6 +340,40 @@ struct StatCard: View {
         .padding(16)
         .background(Color.gray6)
         .cornerRadius(8)
+    }
+}
+
+struct TappableStatCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: icon)
+                        .foregroundColor(color)
+                        .font(.title3)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.textSecondary)
+                        .font(.caption)
+                }
+                
+                BodyMBoldText(value)
+                    .foregroundColor(.white)
+                
+                BodySText(title)
+                    .foregroundColor(.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color.gray6)
+            .cornerRadius(8)
+        }
     }
 }
 

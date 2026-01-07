@@ -46,13 +46,14 @@ class DashboardViewModel: ObservableObject {
     
     private let identityName: String
     
-    init(identityName: String = "default") {
-        self.identityName = identityName
-        self.receiptStorage = ReceiptStorage(identityName: identityName)
-        self.contactStorage = ContactStorage(identityName: identityName)
-        self.autoPayStorage = AutoPayStorage(identityName: identityName)
-        self.subscriptionStorage = SubscriptionStorage(identityName: identityName)
-        self.paymentRequestStorage = PaymentRequestStorage(identityName: identityName)
+    init(identityName: String? = nil) {
+        // Use the current pubkey for storage key to match SubscriptionsViewModel behavior
+        self.identityName = identityName ?? PaykitKeyManager.shared.getCurrentPublicKeyZ32() ?? "default"
+        self.receiptStorage = ReceiptStorage(identityName: self.identityName)
+        self.contactStorage = ContactStorage(identityName: self.identityName)
+        self.autoPayStorage = AutoPayStorage(identityName: self.identityName)
+        self.subscriptionStorage = SubscriptionStorage(identityName: self.identityName)
+        self.paymentRequestStorage = PaymentRequestStorage(identityName: self.identityName)
     }
     
     func loadDashboard() {
@@ -61,7 +62,7 @@ class DashboardViewModel: ObservableObject {
         // Load recent receipts
         recentReceipts = receiptStorage.recentReceipts(limit: 5)
         
-        // Load stats
+        // Load stats from local storage first
         contactCount = contactStorage.listContacts().count
         totalSent = receiptStorage.totalSent()
         totalReceived = receiptStorage.totalReceived()
@@ -83,6 +84,40 @@ class DashboardViewModel: ObservableObject {
         activeSession = sessions.first(where: { !$0.isExpired }) ?? sessions.first
         
         isLoading = false
+        
+        // Sync contacts from Pubky follows in background (updates contactCount when done)
+        Task {
+            await syncContactsFromFollows()
+        }
+    }
+    
+    /// Sync contacts from Pubky follows and update contact count
+    private func syncContactsFromFollows() async {
+        do {
+            let follows = try await DirectoryService.shared.discoverContactsFromFollows()
+            
+            // Convert and persist locally
+            var followContacts: [Contact] = []
+            for discovered in follows {
+                let existing = contactStorage.getContact(id: discovered.pubkey)
+                let contact = Contact(
+                    publicKeyZ32: discovered.pubkey,
+                    name: discovered.name ?? existing?.name ?? "",
+                    notes: existing?.notes
+                )
+                followContacts.append(contact)
+            }
+            
+            try contactStorage.importContacts(followContacts)
+            
+            // Update UI
+            await MainActor.run {
+                self.contactCount = followContacts.count
+            }
+        } catch {
+            Logger.debug("Failed to sync contacts from follows: \(error)", context: "DashboardVM")
+            // Keep the local storage count as fallback
+        }
     }
     
     var isSetupComplete: Bool {

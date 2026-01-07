@@ -276,6 +276,42 @@ public final class PaykitPollingService {
     }
     
     private func handlePaymentRequest(_ request: DiscoveredRequest) async {
+        guard let myPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() else {
+            Logger.error("PaykitPollingService: No identity configured", context: "PaykitPollingService")
+            return
+        }
+        
+        let storage = PaymentRequestStorage(identityName: myPubkey)
+        
+        // Check if already seen (prevents duplicate notifications across restarts)
+        if storage.hasSeenRequest(id: request.requestId) {
+            Logger.debug("PaykitPollingService: Request \(request.requestId) already seen, skipping", context: "PaykitPollingService")
+            return
+        }
+        
+        // Persist the request
+        let paymentRequest = BitkitPaymentRequest(
+            id: request.requestId,
+            fromPubkey: request.fromPubkey,
+            toPubkey: myPubkey,
+            amountSats: request.amountSats,
+            currency: "SAT",
+            methodId: "lightning",
+            description: request.description ?? "",
+            createdAt: request.createdAt,
+            expiresAt: nil,
+            status: .pending,
+            direction: .incoming
+        )
+        
+        do {
+            try storage.addRequest(paymentRequest)
+            try storage.markRequestAsSeen(id: request.requestId)
+        } catch {
+            Logger.error("PaykitPollingService: Failed to persist payment request: \(error)", context: "PaykitPollingService")
+            return
+        }
+        
         // Check auto-pay rules
         let autoPayDecision = await evaluateAutoPay(for: request)
         
@@ -289,6 +325,10 @@ public final class PaykitPollingService {
                 await sendPaymentSuccessNotification(for: request)
                 // Clean up processed request from directory
                 await cleanupProcessedRequest(request)
+                // Update local status to paid
+                var paidRequest = paymentRequest
+                paidRequest.status = .paid
+                try? storage.updateRequest(paidRequest)
             } catch {
                 Logger.error("PaykitPollingService: Auto-pay failed for request \(request.requestId): \(error)", context: "PaykitPollingService")
                 await sendPaymentFailureNotification(for: request, error: error)

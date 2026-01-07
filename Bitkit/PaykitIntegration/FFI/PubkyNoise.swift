@@ -7,9 +7,6 @@ import Foundation
 // Depending on the consumer's build setup, the low-level FFI code
 // might be in a separate module, or it might be compiled inline into
 // this module. This is a bit of light hackery to work with both.
-//
-// In Bitkit, we use a bridging header (Bitkit-Bridging-Header.h) that includes
-// pubky_noiseFFI.h directly, making all C symbols available globally.
 #if canImport(pubky_noiseFFI)
 import pubky_noiseFFI
 #endif
@@ -1709,8 +1706,85 @@ public func deriveDeviceKeypair(seed: Data, deviceId: Data, epoch: UInt32)throws
 })
 }
 /**
- * Check if a JSON string looks like a sealed blob envelope.
+ * Derive noise seed from Ed25519 secret key using HKDF-SHA256.
  *
+ * This is used to derive future X25519 epoch keys locally without
+ * needing to call Ring again. The seed is domain-separated and
+ * cannot be used for signing.
+ *
+ * HKDF parameters:
+ * - salt: "paykit-noise-seed-v1"
+ * - ikm: Ed25519 secret key (32 bytes)
+ * - info: device ID
+ * - output: 32 bytes
+ *
+ * # Arguments
+ *
+ * * `ed25519_secret_hex` - Ed25519 secret key as 64-char hex string (32 bytes)
+ * * `device_id_hex` - Device ID as hex string
+ *
+ * # Returns
+ *
+ * 64-character hex string of the 32-byte noise seed.
+ *
+ * # Errors
+ *
+ * Returns `FfiNoiseError::Ring` if input is invalid.
+ */
+public func deriveNoiseSeed(ed25519SecretHex: String, deviceIdHex: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiNoiseError_lift) {
+    uniffi_pubky_noise_fn_func_derive_noise_seed(
+        FfiConverterString.lower(ed25519SecretHex),
+        FfiConverterString.lower(deviceIdHex),$0
+    )
+})
+}
+/**
+ * Sign an arbitrary message with an Ed25519 secret key.
+ *
+ * # Arguments
+ *
+ * * `ed25519_secret_hex` - 64-character hex string of the 32-byte Ed25519 secret key
+ * * `message_hex` - Hex-encoded message bytes to sign
+ *
+ * # Returns
+ *
+ * 128-character hex string of the 64-byte Ed25519 signature.
+ */
+public func ed25519Sign(ed25519SecretHex: String, messageHex: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiNoiseError_lift) {
+    uniffi_pubky_noise_fn_func_ed25519_sign(
+        FfiConverterString.lower(ed25519SecretHex),
+        FfiConverterString.lower(messageHex),$0
+    )
+})
+}
+/**
+ * Verify an Ed25519 signature.
+ *
+ * # Arguments
+ *
+ * * `ed25519_public_hex` - 64-character hex string of the 32-byte Ed25519 public key
+ * * `message_hex` - Hex-encoded message bytes that were signed
+ * * `signature_hex` - 128-character hex string of the 64-byte signature
+ *
+ * # Returns
+ *
+ * `true` if the signature is valid, `false` otherwise.
+ */
+public func ed25519Verify(ed25519PublicHex: String, messageHex: String, signatureHex: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiNoiseError_lift) {
+    uniffi_pubky_noise_fn_func_ed25519_verify(
+        FfiConverterString.lower(ed25519PublicHex),
+        FfiConverterString.lower(messageHex),
+        FfiConverterString.lower(signatureHex),$0
+    )
+})
+}
+/**
+ * Check if a JSON string looks like a sealed blob envelope (v1 or v2).
+ *
+ * Requires both version field (`"v":1` or `"v":2`) AND ephemeral public key (`"epk":`).
  * This is a quick heuristic check for distinguishing encrypted from legacy plaintext.
  */
 public func isSealedBlob(json: String) -> Bool  {
@@ -1741,12 +1815,12 @@ public func publicKeyFromSecret(secret: Data)throws  -> Data  {
 })
 }
 /**
- * Decrypt a Paykit Sealed Blob v1 envelope.
+ * Decrypt a Paykit Sealed Blob v1 or v2 envelope (auto-detects version).
  *
  * # Arguments
  *
  * * `recipient_sk` - Recipient's X25519 secret key (32 bytes)
- * * `envelope_json` - JSON-encoded sealed blob envelope
+ * * `envelope_json` - JSON-encoded sealed blob envelope (v1 or v2)
  * * `aad` - Associated authenticated data (must match encryption)
  *
  * # Returns
@@ -1768,7 +1842,7 @@ public func sealedBlobDecrypt(recipientSk: Data, envelopeJson: String, aad: Stri
 })
 }
 /**
- * Encrypt plaintext using Paykit Sealed Blob v1 format.
+ * Encrypt plaintext using Paykit Sealed Blob v2 format (XChaCha20-Poly1305).
  *
  * # Arguments
  *
@@ -1779,7 +1853,7 @@ public func sealedBlobDecrypt(recipientSk: Data, envelopeJson: String, aad: Stri
  *
  * # Returns
  *
- * JSON-encoded sealed blob envelope.
+ * JSON-encoded sealed blob v2 envelope.
  *
  * # Errors
  *
@@ -1850,7 +1924,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_pubky_noise_checksum_func_derive_device_keypair() != 18334) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_pubky_noise_checksum_func_is_sealed_blob() != 59485) {
+    if (uniffi_pubky_noise_checksum_func_derive_noise_seed() != 52084) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubky_noise_checksum_func_ed25519_sign() != 64498) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubky_noise_checksum_func_ed25519_verify() != 14993) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubky_noise_checksum_func_is_sealed_blob() != 27217) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubky_noise_checksum_func_performance_config() != 613) {
@@ -1859,10 +1942,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_pubky_noise_checksum_func_public_key_from_secret() != 12954) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_pubky_noise_checksum_func_sealed_blob_decrypt() != 36862) {
+    if (uniffi_pubky_noise_checksum_func_sealed_blob_decrypt() != 39236) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_pubky_noise_checksum_func_sealed_blob_encrypt() != 44846) {
+    if (uniffi_pubky_noise_checksum_func_sealed_blob_encrypt() != 19222) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubky_noise_checksum_func_x25519_generate_keypair() != 20350) {
