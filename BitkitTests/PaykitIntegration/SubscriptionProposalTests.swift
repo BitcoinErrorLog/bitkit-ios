@@ -76,10 +76,12 @@ final class SubscriptionProposalTests: XCTestCase {
     // MARK: - PaykitV0Protocol Subscription Path Tests
 
     func testSubscriptionProposalPathGeneration() throws {
+        let providerPubkey = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
         let subscriberPubkey = "ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u"
         let proposalId = "test-proposal-id"
         
         let path = try PaykitV0Protocol.subscriptionProposalPath(
+            providerPubkeyZ32: providerPubkey,
             subscriberPubkeyZ32: subscriberPubkey,
             proposalId: proposalId
         )
@@ -89,22 +91,30 @@ final class SubscriptionProposalTests: XCTestCase {
     }
 
     func testSubscriptionProposalAadGeneration() throws {
+        let providerPubkey = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
         let subscriberPubkey = "ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u"
         let proposalId = "test-proposal-id"
         
         let aad = try PaykitV0Protocol.subscriptionProposalAad(
+            ownerPubkeyZ32: providerPubkey,
+            providerPubkeyZ32: providerPubkey,
             subscriberPubkeyZ32: subscriberPubkey,
             proposalId: proposalId
         )
         
         XCTAssertTrue(aad.hasPrefix("paykit:v0:subscription_proposal:"))
         XCTAssertTrue(aad.contains(proposalId))
+        XCTAssertTrue(aad.contains(providerPubkey)) // owner
     }
 
     func testSubscriptionProposalsDirGeneration() throws {
+        let providerPubkey = "8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo"
         let subscriberPubkey = "ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u"
         
-        let dir = try PaykitV0Protocol.subscriptionProposalsDir(subscriberPubkeyZ32: subscriberPubkey)
+        let dir = try PaykitV0Protocol.subscriptionProposalsDir(
+            providerPubkeyZ32: providerPubkey,
+            subscriberPubkeyZ32: subscriberPubkey
+        )
         
         XCTAssertTrue(dir.hasPrefix("/pub/paykit.app/v0/subscriptions/proposals/"))
         XCTAssertTrue(dir.hasSuffix("/"))

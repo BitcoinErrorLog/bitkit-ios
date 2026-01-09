@@ -9,6 +9,7 @@ enum SheetID: String, CaseIterable {
     case forgotPin
     case gift
     case highBalance
+    case incomingPayment
     case lnurlAuth
     case lnurlWithdraw
     case notifications
@@ -25,6 +26,11 @@ enum SheetID: String, CaseIterable {
 struct SheetConfiguration {
     let id: SheetID
     let data: Any?
+}
+
+struct IncomingPaymentSheetItem: Identifiable {
+    let id = UUID()
+    let paymentHash: String?
 }
 
 class SheetViewModel: ObservableObject {
@@ -161,6 +167,19 @@ class SheetViewModel: ObservableObject {
         get {
             guard let config = activeSheetConfiguration, config.id == .highBalance else { return nil }
             return HighBalanceSheetItem()
+        }
+        set {
+            if newValue == nil {
+                activeSheetConfiguration = nil
+            }
+        }
+    }
+
+    var incomingPaymentSheetItem: IncomingPaymentSheetItem? {
+        get {
+            guard let config = activeSheetConfiguration, config.id == .incomingPayment else { return nil }
+            let paymentHash = config.data as? String
+            return IncomingPaymentSheetItem(paymentHash: paymentHash)
         }
         set {
             if newValue == nil {

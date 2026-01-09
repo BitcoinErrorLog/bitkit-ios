@@ -92,9 +92,8 @@ class SubscriptionsViewModel: ObservableObject {
                 return
             }
             
-            // Get my scope for debugging
-            let myScope = try? PaykitV0Protocol.subscriberScope(myPubkey)
-            Logger.info("My scope (where proposals TO ME are stored): \(myScope ?? "?")", context: "SubscriptionsVM")
+            // Log discovery context (ContextId is symmetric so we compute per-peer)
+            Logger.info("My pubkey: \(myPubkey.prefix(12))..., will check ContextId paths for each follow", context: "SubscriptionsVM")
             Logger.info("Follows (peers to check): \(follows)", context: "SubscriptionsVM")
             
             discoveryResult = "Polling \(follows.count) peers..."

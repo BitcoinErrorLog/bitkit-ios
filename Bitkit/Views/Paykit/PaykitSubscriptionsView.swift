@@ -105,7 +105,7 @@ struct PaykitSubscriptionsView: View {
             AddSubscriptionView(viewModel: viewModel)
         }
         .sheet(item: $selectedSubscription) { subscription in
-            SubscriptionDetailSheet(subscription: subscription, viewModel: viewModel)
+                SubscriptionDetailSheet(subscription: subscription, viewModel: viewModel)
         }
     }
     

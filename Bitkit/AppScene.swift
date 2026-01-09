@@ -109,6 +109,9 @@ struct AppScene: View {
             .onReceive(NotificationCenter.default.publisher(for: .paykitSubscriptionProposal)) { notification in
                 handlePaykitSubscriptionNotification(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .incomingPaymentNotification)) { notification in
+                handleIncomingPaymentNotification(notification)
+            }
             .onReceive(BackupService.shared.backupFailurePublisher) { intervalMinutes in
                 handleBackupFailure(intervalMinutes: intervalMinutes)
             }
@@ -357,5 +360,20 @@ struct AppScene: View {
             title: t("settings__backup__failed_title"),
             description: t("settings__backup__failed_message", variables: ["interval": "\(intervalMinutes)"])
         )
+    }
+    
+    private func handleIncomingPaymentNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+        
+        let paymentHash = userInfo["paymentHash"] as? String
+        let type = userInfo["type"] as? String ?? ""
+        
+        Logger.info("Handling incoming payment notification: type=\(type), paymentHash=\(paymentHash ?? "nil")", context: "AppScene")
+        
+        // Store the pending payment info for the IncomingPaymentView
+        app.pendingIncomingPaymentHash = paymentHash
+        
+        // Show the incoming payment sheet
+        sheets.showSheet(.incomingPayment, data: paymentHash)
     }
 }

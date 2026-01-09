@@ -1,17 +1,9 @@
-import LDKNode
 import os.log
 import UserNotifications
 
 class NotificationService: UNNotificationServiceExtension {
-    let walletIndex = 0 // Assume first wallet for now
-
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent?
-
-    var receiveTime: CFAbsoluteTime?
-    var nodeStartedTime: CFAbsoluteTime?
-    var lightningEventTime: CFAbsoluteTime?
-    var nodeStopTime: CFAbsoluteTime?
 
     var notificationType: BlocktankNotificationType?
     var notificationPayload: [String: Any]?
@@ -25,29 +17,14 @@ class NotificationService: UNNotificationServiceExtension {
         os_log("🚨 Push received! %{public}@", log: notificationLogger, type: .error, request.identifier)
         os_log("🔔 UserInfo: %{public}@", log: notificationLogger, type: .error, request.content.userInfo)
 
-        receiveTime = CFAbsoluteTimeGetCurrent()
-
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 
-        guard !StateLocker.isLocked(.lightning) else {
-            os_log("🔔 LDK-node process already locked, app likely in foreground", log: notificationLogger, type: .error)
-            return
-        }
-
         Task {
-            // Ensure lock is released even if task is cancelled or errors occur
-            defer {
-                // Fallback: unlock in case stop() wasn't called
-                try? StateLocker.unlock(.lightning)
-                os_log("🔔 Task cleanup: ensured lock release", log: notificationLogger, type: .error)
-            }
-
             do {
-                try await self.decryptPayload(request)
-                os_log("🔔 Decryption successful. Type: %{public}@", log: notificationLogger, type: .error, self.notificationType?.rawValue ?? "nil")
+                try await decryptPayload(request)
+                os_log("🔔 Decryption successful. Type: %{public}@", log: notificationLogger, type: .error, notificationType?.rawValue ?? "nil")
             } catch {
-                // Don't cancel the notification if this fails, rather let the node spin up and handle any potential events
                 os_log(
                     "🔔 Failed to decrypt notification payload: %{public}@",
                     log: notificationLogger,
@@ -56,124 +33,11 @@ class NotificationService: UNNotificationServiceExtension {
                 )
             }
 
-            do {
-                // TODO: switch to electrum after syncing issues are fixed
-                // For notification extension, use default Electrum server URL for now
-                // try await LightningService.shared.setup(walletIndex: self.walletIndex, electrumServerUrl: Env.electrumServerUrl)
-
-                try await LightningService.shared.setup(walletIndex: self.walletIndex)
-                try await LightningService.shared.start { event in
-                    self.lightningEventTime = CFAbsoluteTimeGetCurrent()
-                    self.handleLdkEvent(event: event)
-                }
-
-                self.nodeStartedTime = CFAbsoluteTimeGetCurrent()
-                os_log("🔔 Lightning node started successfully", log: notificationLogger, type: .error)
-            } catch {
-                self.bestAttemptContent?.title = "Lightning Error"
-                self.bestAttemptContent?.body = error.localizedDescription
-
-                os_log(
-                    "🔔 NotificationService: Failed to setup node in notification service: %{public}@",
-                    log: notificationLogger,
-                    type: .error,
-                    error.localizedDescription
-                )
-                self.dumpLdkLogs()
-                self.deliver()
-            }
-
-            // Once node is started, handle the manual channel opening if needed
-            if self.notificationType == .orderPaymentConfirmed {
-                guard let orderId = notificationPayload?["orderId"] as? String else {
-                    os_log("🔔 NotificationService: Missing orderId", log: notificationLogger, type: .error)
-                    return
-                }
-
-                os_log("🔔 NotificationService: Open channel request for order %{public}@", log: notificationLogger, type: .error, orderId)
-
-                do {
-                    let order = try await CoreService.shared.blocktank.open(orderId: orderId)
-                    os_log("🔔 NotificationService: Channel opened for order %{public}@", log: notificationLogger, type: .error, order.id)
-                } catch {
-                    logError(error, context: "Failed to open channel")
-
-                    self.bestAttemptContent?.title = "Spending Balance Setup Failed"
-                    self.bestAttemptContent?.body = error.localizedDescription
-
-                    self.deliver()
-                }
-            }
-            
-            // Handle Paykit notification types
-            await handlePaykitNotification()
+            updateNotificationContent()
+            deliver()
         }
     }
 
-    func handlePaykitNotification() async {
-        guard let type = notificationType, let payload = notificationPayload else {
-            return
-        }
-        
-        switch type {
-        case .paykitPaymentRequest:
-            guard let requestId = payload["requestId"] as? String else {
-                os_log("🔔 NotificationService: Missing requestId for payment request", log: notificationLogger, type: .error)
-                return
-            }
-            
-            os_log("🔔 NotificationService: Processing Paykit payment request %{public}@", log: notificationLogger, type: .error, requestId)
-            
-            // Node is already started, Paykit can process the payment request
-            // The actual processing will happen in foreground when app opens
-            bestAttemptContent?.title = "Payment Request Received"
-            bestAttemptContent?.body = "Tap to review and pay"
-            deliver()
-            
-        case .paykitSubscriptionDue:
-            guard let subscriptionId = payload["subscriptionId"] as? String else {
-                os_log("🔔 NotificationService: Missing subscriptionId for subscription", log: notificationLogger, type: .error)
-                return
-            }
-            
-            os_log("🔔 NotificationService: Processing subscription payment %{public}@", log: notificationLogger, type: .error, subscriptionId)
-            
-            // Node is started, subscription payment can be processed
-            bestAttemptContent?.title = "Subscription Payment Due"
-            bestAttemptContent?.body = "Processing payment..."
-            deliver()
-            
-        case .paykitAutoPayExecuted:
-            guard let amount = payload["amount"] as? UInt64 else {
-                os_log("🔔 NotificationService: Missing amount for auto-pay", log: notificationLogger, type: .error)
-                return
-            }
-            
-            os_log("🔔 NotificationService: Auto-pay executed for amount %{public}llu", log: notificationLogger, type: .error, amount)
-            
-            bestAttemptContent?.title = "Auto-Pay Executed"
-            bestAttemptContent?.body = "₿ \(amount) sent"
-            deliver()
-            
-        case .paykitSubscriptionFailed:
-            guard let subscriptionId = payload["subscriptionId"] as? String,
-                  let reason = payload["reason"] as? String else {
-                os_log("🔔 NotificationService: Missing details for subscription failure", log: notificationLogger, type: .error)
-                return
-            }
-            
-            os_log("🔔 NotificationService: Subscription payment failed %{public}@: %{public}@", log: notificationLogger, type: .error, subscriptionId, reason)
-            
-            bestAttemptContent?.title = "Subscription Payment Failed"
-            bestAttemptContent?.body = reason
-            deliver()
-            
-        default:
-            // Not a Paykit notification
-            break
-        }
-    }
-    
     func decryptPayload(_ request: UNNotificationRequest) async throws {
         guard let aps = request.content.userInfo["aps"] as? AnyObject else {
             os_log("🔔 Failed to decrypt payload: missing aps payload", log: notificationLogger, type: .error)
@@ -225,187 +89,87 @@ class NotificationService: UNNotificationServiceExtension {
         notificationPayload = payload
     }
 
-    /// Listen for LDK events and if the event matches the notification type then deliver the notification
-    /// - Parameter event
-    func handleLdkEvent(event: Event) {
-        os_log("🔔 New LDK event: %{public}@", log: notificationLogger, type: .error, String(describing: event))
-
-        switch event {
-        case let .paymentReceived(_, _, amountMsat, _):
-            let sats = amountMsat / 1000
-            bestAttemptContent?.title = "Payment Received"
-            bestAttemptContent?.body = "₿ \(sats)"
-            ReceivedTxSheetDetails(type: .lightning, sats: sats).save() // Save for UI to pick up
-
-            if notificationType == .incomingHtlc {
-                deliver()
-            }
-        case .channelPending:
-            bestAttemptContent?.title = "Spending Balance Ready"
-            bestAttemptContent?.body = "Pending"
-        // Don't deliver, give a chance for channelReady event to update the content if it's a turbo channel
-        case let .channelReady(channelId, _, _, _):
-            if notificationType == .cjitPaymentArrived {
-                bestAttemptContent?.title = "Payment Received"
-                bestAttemptContent?.body = "Your funds arrived in your spending balance"
-
-                os_log("🔔 NotificationService: cjitPaymentArrived", log: notificationLogger, type: .error)
-
-                if let channel = LightningService.shared.channels?.first(where: { $0.channelId == channelId }) {
-                    os_log("🔔 NotificationService: Channel found", log: notificationLogger, type: .error)
-                    let sats = channel.outboundCapacityMsat / 1000 + (channel.unspendablePunishmentReserve ?? 0)
-                    bestAttemptContent?.title = "Payment Received"
-                    bestAttemptContent?.body = "₿ \(sats)"
-                    ReceivedTxSheetDetails(type: .lightning, sats: sats).save() // Save for UI to pick up
-                }
-
-                deliver()
-            } else if notificationType == .orderPaymentConfirmed {
-                bestAttemptContent?.title = "Spending Balance Ready"
-                bestAttemptContent?.body = "Open Bitkit to start paying anyone, anywhere."
-                deliver()
-            }
-        case .channelClosed:
-            if notificationType == .mutualClose {
-                bestAttemptContent?.title = "Spending Balance Expired"
-                bestAttemptContent?.body = "Your funds moved from spending to savings"
-                deliver()
-            } else if notificationType == .orderPaymentConfirmed {
-                bestAttemptContent?.title = "Spending Balance Setup Failed"
-                bestAttemptContent?.body = "Please open Bitkit and try again"
-                deliver()
-            }
-        case .paymentSuccessful:
-            break
-        case .paymentClaimable:
-            break
-        case let .paymentFailed(_, _, reason):
-            bestAttemptContent?.title = "Payment Failed"
-            bestAttemptContent?.body = reason.debugDescription
-
-            if notificationType == .wakeToTimeout {
-                deliver()
-            }
-        case .paymentForwarded:
-            break
-
-        // MARK: New Onchain Transaction Events
-
-        case let .onchainTransactionReceived(txid, details):
-            // Show notification for incoming onchain transactions
-            if details.amountSats > 0 {
-                let sats = UInt64(abs(Int64(details.amountSats)))
-                bestAttemptContent?.title = "Payment Received"
-                bestAttemptContent?.body = "₿ \(sats) (unconfirmed)"
-                ReceivedTxSheetDetails(type: .onchain, sats: sats).save() // Save for UI to pick up
-                deliver()
-            }
-        case let .onchainTransactionConfirmed(txid, blockHash, blockHeight, confirmationTime, details):
-            // Transaction confirmed - could show notification if it was previously unconfirmed
-            if details.amountSats > 0 {
-                let sats = UInt64(abs(Int64(details.amountSats)))
-                bestAttemptContent?.title = "Payment Confirmed"
-                bestAttemptContent?.body = "₿ \(sats) confirmed at block \(blockHeight)"
-                deliver()
-            }
-        case .onchainTransactionReplaced, .onchainTransactionReorged, .onchainTransactionEvicted:
-            // These events are less critical for notifications, but could be logged
-            os_log("🔔 Onchain transaction state changed: %{public}@", log: notificationLogger, type: .error, String(describing: event))
-
-        // MARK: Sync Events
-
-        case .syncProgress, .syncCompleted:
-            // Sync events are not critical for notifications
-            break
-
-        // MARK: Balance Events
-
-        case .balanceChanged:
-            // Balance changes are handled by other events, not critical for notifications
-            break
-
-        // MARK: Splice Events
-
-        case .splicePending, .spliceFailed:
-            break
+    func updateNotificationContent() {
+        guard let type = notificationType else {
+            bestAttemptContent?.title = "Bitkit"
+            bestAttemptContent?.body = "Open Bitkit to continue"
+            return
         }
+
+        switch type {
+        case .incomingHtlc:
+            bestAttemptContent?.title = "Payment Incoming"
+            bestAttemptContent?.body = "Open now to receive - funds are being held"
+            if let amountMsat = notificationPayload?["amountMsat"] as? UInt64 {
+                let sats = amountMsat / 1000
+                ReceivedTxSheetDetails(type: .lightning, sats: sats).save()
+            }
+
+        case .cjitPaymentArrived:
+            bestAttemptContent?.title = "Payment Incoming"
+            bestAttemptContent?.body = "Open now to receive via new channel"
+            if let amountMsat = notificationPayload?["amountMsat"] as? UInt64 {
+                let sats = amountMsat / 1000
+                ReceivedTxSheetDetails(type: .lightning, sats: sats).save()
+            }
+
+        case .orderPaymentConfirmed:
+            bestAttemptContent?.title = "Channel Ready"
+            bestAttemptContent?.body = "Open Bitkit to complete setup"
+
+        case .mutualClose:
+            bestAttemptContent?.title = "Channel Closed"
+            bestAttemptContent?.body = "Funds moved to savings"
+
+        case .wakeToTimeout:
+            bestAttemptContent?.title = "Bitkit"
+            bestAttemptContent?.body = "Open to complete pending operation"
+
+        case .paykitPaymentRequest:
+            bestAttemptContent?.title = "Payment Request Received"
+            bestAttemptContent?.body = "Tap to review and pay"
+
+        case .paykitSubscriptionDue:
+            bestAttemptContent?.title = "Subscription Payment Due"
+            bestAttemptContent?.body = "Open to process payment"
+
+        case .paykitAutoPayExecuted:
+            if let amount = notificationPayload?["amount"] as? UInt64 {
+                bestAttemptContent?.title = "Auto-Pay Executed"
+                bestAttemptContent?.body = "₿ \(amount) sent"
+            } else {
+                bestAttemptContent?.title = "Auto-Pay Executed"
+                bestAttemptContent?.body = "Payment sent successfully"
+            }
+
+        case .paykitSubscriptionFailed:
+            bestAttemptContent?.title = "Subscription Payment Failed"
+            if let reason = notificationPayload?["reason"] as? String {
+                bestAttemptContent?.body = reason
+            } else {
+                bestAttemptContent?.body = "Open to retry"
+            }
+        }
+
+        bestAttemptContent?.categoryIdentifier = "INCOMING_PAYMENT"
     }
 
     func deliver() {
-        Task {
-            // Sleep to allow event to be processed
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            try? await LightningService.shared.stop()
-
-            self.nodeStopTime = CFAbsoluteTimeGetCurrent()
-            self.logPerformance()
-
-            if let contentHandler, let bestAttemptContent {
-                contentHandler(bestAttemptContent)
-                os_log("🔔 Notification delivered successfully", log: notificationLogger, type: .error)
-            } else {
-                os_log("🔔 Missing contentHandler or bestAttemptContent", log: notificationLogger, type: .error)
-            }
-        }
-    }
-
-    func logPerformance() {
-        guard let receiveTime else { return }
-        guard let nodeStartedTime else { return }
-
-        let nodeStartSeconds = Double(round(100 * (nodeStartedTime - receiveTime)) / 100)
-        os_log("⏱️ Node start time: %{public}f seconds", log: notificationLogger, type: .error, nodeStartSeconds)
-
-        guard let lightningEventTime else { return }
-
-        let lightningEventSeconds = Double(round(100 * (lightningEventTime - nodeStartedTime)) / 100)
-        os_log("⏱️ Lightning event time: %{public}f seconds from node startup", log: notificationLogger, type: .error, lightningEventSeconds)
-
-        guard let nodeStopTime else { return }
-
-        let nodeStopSeconds = Double(round(100 * (nodeStopTime - lightningEventTime)) / 100)
-        os_log("⏱️ Node stop time: %{public}f seconds from lightning event", log: notificationLogger, type: .error, nodeStopSeconds)
-    }
-
-    func dumpLdkLogs() {
-        let dir = Env.ldkStorage(walletIndex: walletIndex)
-        let fileURL = dir.appendingPathComponent("ldk_node_latest.log")
-
-        do {
-            let text = try String(contentsOf: fileURL, encoding: .utf8)
-            let lines = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            os_log("📋 LDK-NODE LOG (last 20 lines):", log: notificationLogger, type: .error)
-            for line in lines.suffix(20) {
-                os_log("📋 %{public}@", log: notificationLogger, type: .error, line)
-            }
-        } catch {
-            os_log("🔔 Failed to load LDK log file: %{public}@", log: notificationLogger, type: .error, error.localizedDescription)
+        if let contentHandler, let bestAttemptContent {
+            contentHandler(bestAttemptContent)
+            os_log("🔔 Notification delivered successfully", log: notificationLogger, type: .error)
+        } else {
+            os_log("🔔 Missing contentHandler or bestAttemptContent", log: notificationLogger, type: .error)
         }
     }
 
     override func serviceExtensionTimeWillExpire() {
         os_log("🔔 NotificationService: Delivering notification before timeout", log: notificationLogger, type: .error)
 
-        // Try to stop node and release lock before termination
-        Task {
-            try? await LightningService.shared.stop()
-        }
-
-        // Called just before the extension will be terminated by the system.
-        // Use this as an opportunity to deliver your "best attempt" at modified content, otherwise the original push payload will be used.
         if let contentHandler, let bestAttemptContent {
+            bestAttemptContent.title = "Bitkit"
+            bestAttemptContent.body = "Open Bitkit to continue"
             contentHandler(bestAttemptContent)
         }
-    }
-
-    /// Logs comprehensive error details
-    private func logError(_ error: Error, context: String) {
-        os_log(
-            "❌ %{public}@: %{public}@",
-            log: notificationLogger,
-            type: .error,
-            context,
-            String(describing: error)
-        )
     }
 }

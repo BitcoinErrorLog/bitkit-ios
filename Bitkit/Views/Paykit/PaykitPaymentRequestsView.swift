@@ -1202,9 +1202,8 @@ class PaymentRequestsViewModel: ObservableObject {
                 return
             }
             
-            // Get my scope for debugging
-            let myScope = try? PaykitV0Protocol.recipientScope(myPubkey)
-            Logger.info("My scope (where requests TO ME are stored): \(myScope ?? "?")", context: "PaymentRequestsVM")
+            // Log discovery context (ContextId is symmetric so we compute per-peer)
+            Logger.info("My pubkey: \(myPubkey.prefix(12))..., will check ContextId paths for each follow", context: "PaymentRequestsVM")
             Logger.info("Follows (peers to check): \(follows)", context: "PaymentRequestsVM")
             
             discoveryResult = "Polling \(follows.count) peers..."

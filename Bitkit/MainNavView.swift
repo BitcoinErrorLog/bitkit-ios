@@ -74,6 +74,14 @@ struct MainNavView: View {
             config in HighBalanceSheet(config: config)
         }
         .sheet(
+            item: $sheets.incomingPaymentSheetItem,
+            onDismiss: {
+                sheets.hideSheet()
+            }
+        ) { config in
+            IncomingPaymentView(paymentHash: config.paymentHash)
+        }
+        .sheet(
             item: $sheets.lnurlAuthSheetItem,
             onDismiss: {
                 sheets.hideSheet()
@@ -232,6 +240,13 @@ struct MainNavView: View {
                     return
                 }
 
+                // Handle bitkit://subscriptions deep link
+                if url.scheme == "bitkit" && url.host == "subscriptions" {
+                    Logger.info("Navigating to subscriptions via deep link", context: "MainNavView")
+                    navigation.navigate(.paykitSubscriptions)
+                    return
+                }
+                
                 // Check if this is a Paykit payment request
                 if url.scheme == "paykit" || (url.scheme == "bitkit" && url.host == "payment-request") {
                     await handlePaymentRequestDeepLink(url: url, app: app, sheets: sheets)

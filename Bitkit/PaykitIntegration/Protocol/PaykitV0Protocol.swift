@@ -5,9 +5,9 @@
 //  Canonical Paykit v0 protocol conventions.
 //
 //  This file provides the single source of truth for:
-//  - Pubkey normalization and scope hashing
-//  - Storage path construction
-//  - AAD (Additional Authenticated Data) formats for Sealed Blob v1
+//  - Pubkey normalization and ContextId derivation
+//  - Storage path construction (using symmetric ContextId)
+//  - AAD (Additional Authenticated Data) formats for Sealed Blob v2
 //
 //  All implementations must match paykit-lib/src/protocol exactly.
 //
@@ -18,9 +18,9 @@ import CryptoKit
 /// Canonical Paykit v0 protocol conventions.
 ///
 /// This struct provides static methods for:
-/// - Pubkey normalization and scope hashing
-/// - Storage path construction
-/// - AAD (Additional Authenticated Data) formats for Sealed Blob v1
+/// - Pubkey normalization and ContextId derivation
+/// - Storage path construction (using symmetric ContextId)
+/// - AAD (Additional Authenticated Data) formats for Sealed Blob v2
 ///
 /// All implementations must match `paykit-lib/src/protocol` exactly.
 public struct PaykitV0Protocol {
@@ -45,6 +45,9 @@ public struct PaykitV0Protocol {
     /// Path suffix for secure handoff directory.
     public static let handoffSubpath = "handoff"
     
+    /// Path suffix for ACKs directory.
+    public static let acksSubpath = "acks"
+    
     /// AAD prefix for all Paykit v0 sealed blobs.
     public static let aadPrefix = "paykit:v0"
     
@@ -56,6 +59,9 @@ public struct PaykitV0Protocol {
     
     /// Purpose label for secure handoff payloads.
     public static let purposeHandoff = "handoff"
+    
+    /// Purpose label for ACKs.
+    public static let purposeAck = "ack"
     
     /// Valid characters in z-base-32 encoding (lowercase only).
     private static let z32Alphabet: Set<Character> = Set("ybndrfg8ejkmcpqxot1uwisza345h769")
@@ -79,52 +85,88 @@ public struct PaykitV0Protocol {
         }
     }
     
-    // MARK: - Scope Derivation
+    // MARK: - Pubkey Normalization
     
     /// Normalize a z-base-32 pubkey string.
     ///
     /// Performs:
     /// 1. Trim whitespace
-    /// 2. Strip `pk:` prefix if present
-    /// 3. Lowercase
-    /// 4. Validate length (52 chars) and alphabet
+    /// 2. Strip `pubky://` prefix if present
+    /// 3. Strip `pk:` prefix if present
+    /// 4. Lowercase
+    /// 5. Validate length (52 chars) and alphabet
     ///
     /// - Parameter pubkey: The pubkey string to normalize
     /// - Returns: The normalized pubkey (52 lowercase z32 chars)
     /// - Throws: ProtocolError if the pubkey is malformed
     public static func normalizePubkeyZ32(_ pubkey: String) throws -> String {
-        let trimmed = pubkey.trimmingCharacters(in: .whitespaces)
+        var result = pubkey.trimmingCharacters(in: .whitespaces)
+        
+        // Strip pubky:// prefix if present
+        if result.hasPrefix("pubky://") {
+            result = String(result.dropFirst(8))
+        }
         
         // Strip pk: prefix if present
-        let withoutPrefix = trimmed.hasPrefix("pk:") ? String(trimmed.dropFirst(3)) : trimmed
+        if result.hasPrefix("pk:") {
+            result = String(result.dropFirst(3))
+        }
         
         // Lowercase
-        let lowercased = withoutPrefix.lowercased()
+        result = result.lowercased()
         
         // Validate length
-        guard lowercased.count == z32PubkeyLength else {
-            throw ProtocolError.invalidPubkeyLength(actual: lowercased.count, expected: z32PubkeyLength)
+        guard result.count == z32PubkeyLength else {
+            throw ProtocolError.invalidPubkeyLength(actual: result.count, expected: z32PubkeyLength)
         }
         
         // Validate alphabet
-        for char in lowercased {
+        for char in result {
             guard z32Alphabet.contains(char) else {
                 throw ProtocolError.invalidZ32Character(char)
             }
         }
         
-        return lowercased
+        return result
     }
+    
+    // MARK: - ContextId Derivation (Sealed Blob v2)
+    
+    /// Compute the ContextId for a peer pair.
+    ///
+    /// `ContextId = hex(sha256("paykit:v0:context:" + first_z32 + ":" + second_z32))`
+    ///
+    /// Where `first_z32 <= second_z32` lexicographically (symmetric).
+    ///
+    /// - Parameters:
+    ///   - pubkeyAZ32: First peer's z-base-32 encoded pubkey
+    ///   - pubkeyBZ32: Second peer's z-base-32 encoded pubkey
+    /// - Returns: Lowercase hex string (64 chars) representing the ContextId
+    /// - Throws: ProtocolError if either pubkey is malformed
+    public static func contextId(_ pubkeyAZ32: String, _ pubkeyBZ32: String) throws -> String {
+        let normA = try normalizePubkeyZ32(pubkeyAZ32)
+        let normB = try normalizePubkeyZ32(pubkeyBZ32)
+        
+        let (first, second) = normA <= normB ? (normA, normB) : (normB, normA)
+        
+        let preimage = "paykit:v0:context:\(first):\(second)"
+        let data = Data(preimage.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+    
+    // MARK: - Legacy Scope Derivation (Deprecated)
     
     /// Compute the scope hash for a pubkey.
     ///
     /// `scope = hex(sha256(utf8(normalized_pubkey_z32)))`
     ///
-    /// The scope is used as a per-recipient directory name in storage paths.
+    /// - Note: Deprecated in favor of ContextId-based paths. Use `contextId(_:_:)` instead.
     ///
     /// - Parameter pubkeyZ32: A z-base-32 encoded pubkey (will be normalized)
     /// - Returns: Lowercase hex string (64 chars) representing the SHA-256 hash
     /// - Throws: ProtocolError if the pubkey is malformed
+    @available(*, deprecated, message: "Use contextId(_:_:) for Sealed Blob v2 paths")
     public static func recipientScope(_ pubkeyZ32: String) throws -> String {
         let normalized = try normalizePubkeyZ32(pubkeyZ32)
         return computeScopeHash(normalized)
@@ -132,7 +174,8 @@ public struct PaykitV0Protocol {
     
     /// Alias for `recipientScope` - used for subscription proposals.
     ///
-    /// Semantically identical, but named for clarity when dealing with subscriptions.
+    /// - Note: Deprecated in favor of ContextId-based paths. Use `contextId(_:_:)` instead.
+    @available(*, deprecated, message: "Use contextId(_:_:) for Sealed Blob v2 paths")
     public static func subscriberScope(_ pubkeyZ32: String) throws -> String {
         try recipientScope(pubkeyZ32)
     }
@@ -144,64 +187,78 @@ public struct PaykitV0Protocol {
         return hash.map { String(format: "%02x", $0) }.joined()
     }
     
-    // MARK: - Path Builders
+    // MARK: - Path Builders (ContextId-based)
     
     /// Build the storage path for a payment request.
     ///
-    /// Path format: `/pub/paykit.app/v0/requests/{recipient_scope}/{request_id}`
+    /// Path format: `/pub/paykit.app/v0/requests/{context_id}/{request_id}`
     ///
-    /// This path is used on the **sender's** storage to store an encrypted
-    /// payment request addressed to the recipient.
+    /// Uses symmetric ContextId for sender-recipient pair.
     ///
     /// - Parameters:
+    ///   - senderPubkeyZ32: The sender's z-base-32 encoded pubkey
     ///   - recipientPubkeyZ32: The recipient's z-base-32 encoded pubkey
     ///   - requestId: Unique identifier for this request
     /// - Returns: The full storage path (without the `pubky://owner` prefix)
-    public static func paymentRequestPath(recipientPubkeyZ32: String, requestId: String) throws -> String {
-        let scope = try recipientScope(recipientPubkeyZ32)
-        return "\(paykitV0Prefix)/\(requestsSubpath)/\(scope)/\(requestId)"
+    public static func paymentRequestPath(
+        senderPubkeyZ32: String,
+        recipientPubkeyZ32: String,
+        requestId: String
+    ) throws -> String {
+        let ctxId = try contextId(senderPubkeyZ32, recipientPubkeyZ32)
+        return "\(paykitV0Prefix)/\(requestsSubpath)/\(ctxId)/\(requestId)"
     }
     
-    /// Build the directory path for listing payment requests for a recipient.
+    /// Build the directory path for listing payment requests.
     ///
-    /// Path format: `/pub/paykit.app/v0/requests/{recipient_scope}/`
+    /// Path format: `/pub/paykit.app/v0/requests/{context_id}/`
     ///
-    /// Used when polling a contact's storage to discover pending requests.
-    ///
-    /// - Parameter recipientPubkeyZ32: The recipient's z-base-32 encoded pubkey
+    /// - Parameters:
+    ///   - senderPubkeyZ32: The sender's z-base-32 encoded pubkey
+    ///   - recipientPubkeyZ32: The recipient's z-base-32 encoded pubkey
     /// - Returns: The directory path (with trailing slash for listing)
-    public static func paymentRequestsDir(recipientPubkeyZ32: String) throws -> String {
-        let scope = try recipientScope(recipientPubkeyZ32)
-        return "\(paykitV0Prefix)/\(requestsSubpath)/\(scope)/"
+    public static func paymentRequestsDir(
+        senderPubkeyZ32: String,
+        recipientPubkeyZ32: String
+    ) throws -> String {
+        let ctxId = try contextId(senderPubkeyZ32, recipientPubkeyZ32)
+        return "\(paykitV0Prefix)/\(requestsSubpath)/\(ctxId)/"
     }
     
     /// Build the storage path for a subscription proposal.
     ///
-    /// Path format: `/pub/paykit.app/v0/subscriptions/proposals/{subscriber_scope}/{proposal_id}`
+    /// Path format: `/pub/paykit.app/v0/subscriptions/proposals/{context_id}/{proposal_id}`
     ///
-    /// This path is used on the **provider's** storage to store an encrypted
-    /// subscription proposal addressed to the subscriber.
+    /// Uses symmetric ContextId for provider-subscriber pair.
     ///
     /// - Parameters:
+    ///   - providerPubkeyZ32: The provider's z-base-32 encoded pubkey
     ///   - subscriberPubkeyZ32: The subscriber's z-base-32 encoded pubkey
     ///   - proposalId: Unique identifier for this proposal
     /// - Returns: The full storage path (without the `pubky://owner` prefix)
-    public static func subscriptionProposalPath(subscriberPubkeyZ32: String, proposalId: String) throws -> String {
-        let scope = try subscriberScope(subscriberPubkeyZ32)
-        return "\(paykitV0Prefix)/\(subscriptionProposalsSubpath)/\(scope)/\(proposalId)"
+    public static func subscriptionProposalPath(
+        providerPubkeyZ32: String,
+        subscriberPubkeyZ32: String,
+        proposalId: String
+    ) throws -> String {
+        let ctxId = try contextId(providerPubkeyZ32, subscriberPubkeyZ32)
+        return "\(paykitV0Prefix)/\(subscriptionProposalsSubpath)/\(ctxId)/\(proposalId)"
     }
     
-    /// Build the directory path for listing subscription proposals for a subscriber.
+    /// Build the directory path for listing subscription proposals.
     ///
-    /// Path format: `/pub/paykit.app/v0/subscriptions/proposals/{subscriber_scope}/`
+    /// Path format: `/pub/paykit.app/v0/subscriptions/proposals/{context_id}/`
     ///
-    /// Used when polling a provider's storage to discover pending proposals.
-    ///
-    /// - Parameter subscriberPubkeyZ32: The subscriber's z-base-32 encoded pubkey
+    /// - Parameters:
+    ///   - providerPubkeyZ32: The provider's z-base-32 encoded pubkey
+    ///   - subscriberPubkeyZ32: The subscriber's z-base-32 encoded pubkey
     /// - Returns: The directory path (with trailing slash for listing)
-    public static func subscriptionProposalsDir(subscriberPubkeyZ32: String) throws -> String {
-        let scope = try subscriberScope(subscriberPubkeyZ32)
-        return "\(paykitV0Prefix)/\(subscriptionProposalsSubpath)/\(scope)/"
+    public static func subscriptionProposalsDir(
+        providerPubkeyZ32: String,
+        subscriberPubkeyZ32: String
+    ) throws -> String {
+        let ctxId = try contextId(providerPubkeyZ32, subscriberPubkeyZ32)
+        return "\(paykitV0Prefix)/\(subscriptionProposalsSubpath)/\(ctxId)/"
     }
     
     /// Build the storage path for a Noise endpoint.
@@ -223,32 +280,76 @@ public struct PaykitV0Protocol {
         "\(paykitV0Prefix)/\(handoffSubpath)/\(requestId)"
     }
     
-    // MARK: - AAD Builders
+    /// Build the storage path for an ACK.
+    ///
+    /// Path format: `/pub/paykit.app/v0/acks/{object_type}/{context_id}/{msg_id}`
+    ///
+    /// - Parameters:
+    ///   - objectType: The type being ACKed (e.g., "request", "proposal")
+    ///   - senderPubkeyZ32: The original sender's pubkey
+    ///   - recipientPubkeyZ32: The original recipient's pubkey
+    ///   - msgId: The original message ID being ACKed
+    /// - Returns: The full storage path
+    public static func ackPath(
+        objectType: String,
+        senderPubkeyZ32: String,
+        recipientPubkeyZ32: String,
+        msgId: String
+    ) throws -> String {
+        let ctxId = try contextId(senderPubkeyZ32, recipientPubkeyZ32)
+        return "\(paykitV0Prefix)/\(acksSubpath)/\(objectType)/\(ctxId)/\(msgId)"
+    }
+    
+    // MARK: - AAD Builders (Owner-bound for Sealed Blob v2)
     
     /// Build AAD for a payment request.
     ///
-    /// Format: `paykit:v0:request:{path}:{request_id}`
+    /// Format: `paykit:v0:request:{owner}:{path}:{request_id}`
     ///
     /// - Parameters:
+    ///   - ownerPubkeyZ32: The storage owner's z-base-32 encoded pubkey
+    ///   - senderPubkeyZ32: The sender's z-base-32 encoded pubkey
     ///   - recipientPubkeyZ32: The recipient's z-base-32 encoded pubkey
     ///   - requestId: Unique identifier for this request
-    /// - Returns: The AAD string to use with Sealed Blob v1 encryption
-    public static func paymentRequestAad(recipientPubkeyZ32: String, requestId: String) throws -> String {
-        let path = try paymentRequestPath(recipientPubkeyZ32: recipientPubkeyZ32, requestId: requestId)
-        return "\(aadPrefix):\(purposeRequest):\(path):\(requestId)"
+    /// - Returns: The AAD string to use with Sealed Blob v2 encryption
+    public static func paymentRequestAad(
+        ownerPubkeyZ32: String,
+        senderPubkeyZ32: String,
+        recipientPubkeyZ32: String,
+        requestId: String
+    ) throws -> String {
+        let owner = try normalizePubkeyZ32(ownerPubkeyZ32)
+        let path = try paymentRequestPath(
+            senderPubkeyZ32: senderPubkeyZ32,
+            recipientPubkeyZ32: recipientPubkeyZ32,
+            requestId: requestId
+        )
+        return "\(aadPrefix):\(purposeRequest):\(owner):\(path):\(requestId)"
     }
     
     /// Build AAD for a subscription proposal.
     ///
-    /// Format: `paykit:v0:subscription_proposal:{path}:{proposal_id}`
+    /// Format: `paykit:v0:subscription_proposal:{owner}:{path}:{proposal_id}`
     ///
     /// - Parameters:
+    ///   - ownerPubkeyZ32: The storage owner's z-base-32 encoded pubkey
+    ///   - providerPubkeyZ32: The provider's z-base-32 encoded pubkey
     ///   - subscriberPubkeyZ32: The subscriber's z-base-32 encoded pubkey
     ///   - proposalId: Unique identifier for this proposal
-    /// - Returns: The AAD string to use with Sealed Blob v1 encryption
-    public static func subscriptionProposalAad(subscriberPubkeyZ32: String, proposalId: String) throws -> String {
-        let path = try subscriptionProposalPath(subscriberPubkeyZ32: subscriberPubkeyZ32, proposalId: proposalId)
-        return "\(aadPrefix):\(purposeSubscriptionProposal):\(path):\(proposalId)"
+    /// - Returns: The AAD string to use with Sealed Blob v2 encryption
+    public static func subscriptionProposalAad(
+        ownerPubkeyZ32: String,
+        providerPubkeyZ32: String,
+        subscriberPubkeyZ32: String,
+        proposalId: String
+    ) throws -> String {
+        let owner = try normalizePubkeyZ32(ownerPubkeyZ32)
+        let path = try subscriptionProposalPath(
+            providerPubkeyZ32: providerPubkeyZ32,
+            subscriberPubkeyZ32: subscriberPubkeyZ32,
+            proposalId: proposalId
+        )
+        return "\(aadPrefix):\(purposeSubscriptionProposal):\(owner):\(path):\(proposalId)"
     }
     
     /// Build AAD for a secure handoff payload.
@@ -258,10 +359,39 @@ public struct PaykitV0Protocol {
     /// - Parameters:
     ///   - ownerPubkeyZ32: The Ring user's z-base-32 encoded pubkey
     ///   - requestId: Unique identifier for this handoff
-    /// - Returns: The AAD string to use with Sealed Blob v1 encryption
-    public static func secureHandoffAad(ownerPubkeyZ32: String, requestId: String) -> String {
+    /// - Returns: The AAD string to use with Sealed Blob v2 encryption
+    public static func secureHandoffAad(ownerPubkeyZ32: String, requestId: String) throws -> String {
+        let owner = try normalizePubkeyZ32(ownerPubkeyZ32)
         let path = secureHandoffPath(requestId: requestId)
-        return "\(aadPrefix):\(purposeHandoff):\(ownerPubkeyZ32):\(path):\(requestId)"
+        return "\(aadPrefix):\(purposeHandoff):\(owner):\(path):\(requestId)"
+    }
+    
+    /// Build AAD for an ACK.
+    ///
+    /// Format: `paykit:v0:ack_{object_type}:{ack_writer}:{path}:{msg_id}`
+    ///
+    /// - Parameters:
+    ///   - objectType: The type being ACKed (e.g., "request", "proposal")
+    ///   - ackWriterPubkeyZ32: The pubkey of the entity writing the ACK
+    ///   - senderPubkeyZ32: The original sender's pubkey
+    ///   - recipientPubkeyZ32: The original recipient's pubkey
+    ///   - msgId: The original message ID being ACKed
+    /// - Returns: The AAD string to use with Sealed Blob v2 encryption
+    public static func ackAad(
+        objectType: String,
+        ackWriterPubkeyZ32: String,
+        senderPubkeyZ32: String,
+        recipientPubkeyZ32: String,
+        msgId: String
+    ) throws -> String {
+        let ackWriter = try normalizePubkeyZ32(ackWriterPubkeyZ32)
+        let path = try ackPath(
+            objectType: objectType,
+            senderPubkeyZ32: senderPubkeyZ32,
+            recipientPubkeyZ32: recipientPubkeyZ32,
+            msgId: msgId
+        )
+        return "\(aadPrefix):ack_\(objectType):\(ackWriter):\(path):\(msgId)"
     }
     
     /// Build AAD for a cross-device relay session payload.
@@ -269,21 +399,8 @@ public struct PaykitV0Protocol {
     /// Format: `paykit:v0:relay:session:{request_id}`
     ///
     /// - Parameter requestId: Unique identifier for this relay session request
-    /// - Returns: The AAD string to use with Sealed Blob v1 encryption
+    /// - Returns: The AAD string to use with Sealed Blob encryption
     public static func relaySessionAad(requestId: String) -> String {
         "\(aadPrefix):relay:session:\(requestId)"
     }
-    
-    /// Build AAD from explicit path and ID.
-    ///
-    /// Format: `paykit:v0:{purpose}:{path}:{id}`
-    ///
-    /// - Parameters:
-    ///   - purpose: The object type (use constants like `purposeRequest`)
-    ///   - path: The full storage path
-    ///   - id: The object identifier
-    public static func buildAad(purpose: String, path: String, id: String) -> String {
-        "\(aadPrefix):\(purpose):\(path):\(id)"
-    }
 }
-

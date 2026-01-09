@@ -12,7 +12,7 @@ import Foundation
 // MARK: - Data Models
 
 /// Payload structure stored on homeserver by Pubky-ring during secure handoff
-/// NOTE: This is the DECRYPTED payload. On homeserver, it's encrypted using Sealed Blob v1.
+/// NOTE: This is the DECRYPTED payload. On homeserver, it's encrypted using Sealed Blob v2.
 public struct SecureHandoffPayload: Codable {
     public let version: Int
     public let pubky: String
@@ -344,9 +344,8 @@ public final class SecureHandoffHandler {
             throw SecureHandoffError.missingEphemeralKey
         }
         
-        // Build AAD following Paykit v0 protocol: paykit:v0:handoff:{pubkey}:{path}:{requestId}
-        let storagePath = "/pub/paykit.app/v0/handoff/\(requestId)"
-        let aad = "paykit:v0:handoff:\(pubkey):\(storagePath):\(requestId)"
+        // Build AAD following Paykit v0 protocol: paykit:v0:handoff:{owner}:{path}:{requestId}
+        let aad = try PaykitV0Protocol.secureHandoffAad(ownerPubkeyZ32: pubkey, requestId: requestId)
         
         do {
             // Convert secret key from hex to Data

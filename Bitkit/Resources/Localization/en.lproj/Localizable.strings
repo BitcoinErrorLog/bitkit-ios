@@ -1164,3 +1164,13 @@
 "widgets__weather__current_fee" = "Current average fee";
 "widgets__weather__next_block" = "Next block inclusion";
 "widgets__weather__error" = "Couldn\'t get current fee weather";
+
+"incoming__nav_title" = "Incoming Payment";
+"incoming__connecting" = "Connecting to Lightning peer...";
+"incoming__completing" = "Completing payment...";
+"incoming__received" = "Received ₿ {sats}";
+"incoming__expired_title" = "Payment Expired";
+"incoming__expired_text" = "The payment timed out. Ask the sender to retry.";
+"incoming__retry" = "Retry Now";
+"incoming__copy_message" = "Copy Message for Sender";
+"incoming__copy_message_text" = "My wallet needs me to open the app to receive. Please retry in 10 seconds.";

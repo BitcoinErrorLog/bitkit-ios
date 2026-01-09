@@ -99,9 +99,29 @@ final class PushNotificationManager: ObservableObject {
             return
         }
         
-        // Check for Paykit payment request notification tap
+        // Check for notification type
         if let type = userInfo["type"] as? String {
             switch type {
+            // Lightning incoming payment notifications - prioritize node startup
+            case "incomingHtlc", "cjitPaymentArrived":
+                Logger.info("📩 Incoming payment notification tapped: \(type)", context: "PushNotificationManager")
+                let paymentHash = userInfo["paymentHash"] as? String
+                NotificationCenter.default.post(
+                    name: .incomingPaymentNotification,
+                    object: nil,
+                    userInfo: ["paymentHash": paymentHash ?? "", "type": type]
+                )
+                
+            case "orderPaymentConfirmed":
+                Logger.info("📩 Channel ready notification tapped", context: "PushNotificationManager")
+                let orderId = userInfo["orderId"] as? String
+                NotificationCenter.default.post(
+                    name: .incomingPaymentNotification,
+                    object: nil,
+                    userInfo: ["orderId": orderId ?? "", "type": type]
+                )
+                
+            // Paykit notification types
             case "paykit_noise_request", "paykit_payment_request":
                 if let requestId = userInfo["requestId"] as? String {
                     Logger.info("📩 Payment request notification tapped: \(requestId)", context: "PushNotificationManager")

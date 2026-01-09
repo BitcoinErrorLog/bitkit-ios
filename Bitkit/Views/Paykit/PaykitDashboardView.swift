@@ -118,8 +118,8 @@ struct PaykitDashboardView: View {
                 ) {
                     navigation.navigate(.paykitPaymentRequests)
                 }
-            }
-            
+                }
+                
             HStack(spacing: 12) {
                 QuickAccessCard(
                     title: "Noise Payment",
