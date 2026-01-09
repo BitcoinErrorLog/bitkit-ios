@@ -116,29 +116,19 @@
 		96A44F3F2CEF5EA700FBACFF /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Constants/Env.swift,
 				Extensions/HexBytes.swift,
-				Extensions/PaymentDetails.swift,
 				Models/BlocktankNotificationType.swift,
-				Models/LnPeer.swift,
-				Models/ReceivedTxSheetDetails.swift,
-				Models/Toast.swift,
-				Services/CoreService.swift,
-				Services/GeoService.swift,
-				Services/LightningService.swift,
-				Services/ServiceQueue.swift,
-				Services/VssStoreIdProvider.swift,
 				Utilities/Crypto.swift,
-				Utilities/Errors.swift,
-				Utilities/Keychain.swift,
-				Utilities/Logger.swift,
-				Utilities/StateLocker.swift,
 			);
 			target = 961058DB2C355B5500E1F1D8 /* BitkitNotification */;
 		};
 		96A44F5E2CEF5F5800FBACFF /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ExtensionEnv.swift,
+				ExtensionKeychain.swift,
+				ExtensionLogger.swift,
+				ExtensionReceivedTxSheetDetails.swift,
 				NotificationService.swift,
 			);
 			target = 961058DB2C355B5500E1F1D8 /* BitkitNotification */;
@@ -157,11 +147,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				968FE1402DFB016B0053CD7F /* LDKNode in Frameworks */,
-				96DEA03C2DE8BBAB009932BF /* BitkitCore in Frameworks */,
-				4AFCA3722E0596D900205CAE /* Zip in Frameworks */,
 				96E493A82C943184000E8BC2 /* secp256k1 in Frameworks */,
-				18D65E022EB964BD00252335 /* VssRustClientFfi in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,10 +236,6 @@
 			name = BitkitNotification;
 			packageProductDependencies = (
 				96E493A72C943184000E8BC2 /* secp256k1 */,
-				96DEA03B2DE8BBAB009932BF /* BitkitCore */,
-				4AFCA3712E0596D900205CAE /* Zip */,
-				968FE13F2DFB016B0053CD7F /* LDKNode */,
-				18D65E012EB964BD00252335 /* VssRustClientFfi */,
 			);
 			productName = BitkitNotification;
 			productReference = 961058DC2C355B5500E1F1D8 /* BitkitNotification.appex */;

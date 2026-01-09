@@ -1,3 +1,4 @@
+import LDKNode
 import SwiftUI
 
 enum IncomingPaymentState {
@@ -14,7 +15,9 @@ struct IncomingPaymentView: View {
 
     @State private var state: IncomingPaymentState = .connecting
     @State private var hasCopiedMessage = false
-    
+    @State private var timeoutTask: Task<Void, Never>?
+
+    private let eventHandlerId = "IncomingPaymentView-\(UUID().uuidString)"
     let paymentHash: String?
 
     var body: some View {
@@ -45,6 +48,10 @@ struct IncomingPaymentView: View {
         .bottomSafeAreaPadding()
         .task {
             await completePayment()
+        }
+        .onDisappear {
+            wallet.removeOnEvent(id: eventHandlerId)
+            timeoutTask?.cancel()
         }
     }
 
@@ -118,27 +125,51 @@ struct IncomingPaymentView: View {
     private func completePayment() async {
         state = .connecting
 
+        wallet.addOnEvent(id: eventHandlerId) { event in
+            handleLightningEvent(event)
+        }
+
         do {
-            // Use wallet's start which handles the full node lifecycle
             try await wallet.start()
-            
+
             state = .completing
 
             try await LightningService.shared.connectToTrustedPeers()
             try await LightningService.shared.sync()
 
-            // Wait up to 10 seconds for the payment to complete
-            try await Task.sleep(nanoseconds: 10_000_000_000)
-            
-            // Check if we received the payment by looking at balance change
-            // For now, just mark as completed if we got this far without error
-            if case .completing = state {
-                // No payment received in time
-                state = .expired
+            timeoutTask = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    if case .completing = state {
+                        state = .expired
+                    }
+                } catch {
+                    // Task was cancelled, which is expected on success
+                }
             }
         } catch {
             Logger.error("Failed to complete incoming payment: \(error)", context: "IncomingPaymentView")
             state = .expired
+        }
+    }
+
+    private func handleLightningEvent(_ event: Event) {
+        switch event {
+        case let .paymentReceived(paymentId, eventPaymentHash, amountMsat, _):
+            let receivedHash = paymentId ?? eventPaymentHash
+            if let expectedHash = paymentHash, !expectedHash.isEmpty {
+                if receivedHash == expectedHash {
+                    timeoutTask?.cancel()
+                    state = .completed(sats: amountMsat / 1000)
+                    Logger.info("Matched incoming payment: \(receivedHash)", context: "IncomingPaymentView")
+                }
+            } else {
+                timeoutTask?.cancel()
+                state = .completed(sats: amountMsat / 1000)
+                Logger.info("Received payment (no hash filter): \(receivedHash)", context: "IncomingPaymentView")
+            }
+        default:
+            break
         }
     }
 }

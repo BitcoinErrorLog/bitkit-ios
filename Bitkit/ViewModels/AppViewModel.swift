@@ -55,9 +55,6 @@ class AppViewModel: ObservableObject {
     @Published var pendingPaykitRequestId: String?
     @Published var pendingPaykitSubscriptionId: String?
     @Published var pendingPaykitPayment: PaykitPendingPayment?
-    
-    // Lightning incoming payment pending
-    @Published var pendingIncomingPaymentHash: String?
 
     func showAllEmptyStates(_ show: Bool) {
         showHomeViewEmptyState = show

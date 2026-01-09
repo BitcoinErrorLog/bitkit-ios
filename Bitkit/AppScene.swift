@@ -364,16 +364,12 @@ struct AppScene: View {
     
     private func handleIncomingPaymentNotification(_ notification: Notification) {
         guard let userInfo = notification.userInfo else { return }
-        
+
         let paymentHash = userInfo["paymentHash"] as? String
         let type = userInfo["type"] as? String ?? ""
-        
+
         Logger.info("Handling incoming payment notification: type=\(type), paymentHash=\(paymentHash ?? "nil")", context: "AppScene")
-        
-        // Store the pending payment info for the IncomingPaymentView
-        app.pendingIncomingPaymentHash = paymentHash
-        
-        // Show the incoming payment sheet
+
         sheets.showSheet(.incomingPayment, data: paymentHash)
     }
 }

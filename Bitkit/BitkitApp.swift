@@ -146,27 +146,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
     
     private func processIncomingHTLCInBackground(userInfo: [AnyHashable: Any]) async throws {
-        guard !StateLocker.isLocked(.lightning) else {
-            Logger.debug("🔔 Lightning already locked, skipping background processing", context: "AppDelegate")
-            return
-        }
-        
-        try StateLocker.lock(.lightning, wait: 5)
-        defer { try? StateLocker.unlock(.lightning) }
-        
-        let walletIndex = 0
-        
-        try await LightningService.shared.setup(walletIndex: walletIndex)
-        try await LightningService.shared.start { event in
-            Logger.debug("🔔 Background LDK event: \(event)", context: "AppDelegate")
-        }
-        
-        try await LightningService.shared.connectToTrustedPeers()
-        try await LightningService.shared.sync()
-        
-        try await Task.sleep(nanoseconds: 5_000_000_000)
-        
-        try await LightningService.shared.stop()
+        try await BackgroundNodeHelper.shared.performSyncAndWait(walletIndex: 0, waitDuration: 5)
     }
 
     // Foreground notification presentation
