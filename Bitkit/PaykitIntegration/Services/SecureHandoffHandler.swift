@@ -279,9 +279,10 @@ public final class SecureHandoffHandler {
     /// Validate that a payload has not expired
     /// - Throws: SecureHandoffError.payloadExpired if expired
     public func validatePayload(_ payload: SecureHandoffPayload) throws {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        if now > payload.expiresAt {
-            Logger.warn("Handoff payload expired: now=\(now), expiresAt=\(payload.expiresAt)", context: "SecureHandoffHandler")
+        // Ring sends timestamps in Unix seconds per PUBKY_CRYPTO_SPEC
+        let nowSeconds = Int64(Date().timeIntervalSince1970)
+        if nowSeconds > payload.expiresAt {
+            Logger.warn("Handoff payload expired: now=\(nowSeconds)s, expiresAt=\(payload.expiresAt)s", context: "SecureHandoffHandler")
             throw SecureHandoffError.payloadExpired
         }
     }
@@ -344,8 +345,10 @@ public final class SecureHandoffHandler {
             throw SecureHandoffError.missingEphemeralKey
         }
         
-        // Build AAD following Paykit v0 protocol: paykit:v0:handoff:{owner}:{path}:{requestId}
-        let aad = try PaykitV0Protocol.secureHandoffAad(ownerPubkeyZ32: pubkey, requestId: requestId)
+        // Spec-compliant AAD construction per PUBKY_CRYPTO_SPEC v2:
+        // AAD = "pubky-envelope/v2:" || owner_peerid_bytes || canonical_path_bytes || header_bytes
+        // sealedBlobDecryptWithContext handles AAD construction internally
+        let canonicalPath = "/pub/paykit.app/v0/handoff/\(requestId)"
         
         do {
             // Convert secret key from hex to Data
@@ -353,11 +356,15 @@ public final class SecureHandoffHandler {
                 throw SecureHandoffError.decryptionFailed("Invalid secret key hex")
             }
             
-            // Decrypt using pubky-noise sealed blob
-            let plaintextData = try sealedBlobDecrypt(
+            // Convert pubkey (z32) to raw Ed25519 bytes (owner_peerid)
+            let ownerPeeridBytes = z32Decode(pubkey)
+            
+            // Decrypt using spec-compliant sealed blob with context
+            let plaintextData = try sealedBlobDecryptWithContext(
                 recipientSk: secretKeyData,
                 envelopeJson: envelopeJson,
-                aad: aad
+                ownerPeerid: ownerPeeridBytes,
+                canonicalPath: canonicalPath
             )
             
             // Decode decrypted JSON
@@ -381,11 +388,12 @@ public final class SecureHandoffHandler {
     }
     
     private func buildSetupResult(from payload: SecureHandoffPayload, homeserverURL: String) -> PaykitSetupResult {
+        // Ring sends timestamps in Unix seconds per PUBKY_CRYPTO_SPEC
         let session = PubkyRingSession(
             pubkey: payload.pubky,
             sessionSecret: payload.sessionSecret,
             capabilities: payload.capabilities,
-            createdAt: Date(timeIntervalSince1970: TimeInterval(payload.createdAt) / 1000),
+            createdAt: Date(timeIntervalSince1970: TimeInterval(payload.createdAt)),
             expiresAt: nil,
             homeserverURL: homeserverURL  // Use resolved URL instead of potentially nil payload value
         )
@@ -551,5 +559,40 @@ private extension Data {
         
         self = data
     }
+}
+
+// MARK: - Z32 Decoding
+
+/// Decode a z-base-32 encoded string to raw bytes.
+/// z-base-32 uses the alphabet: ybndrfg8ejkmcpqxot1uwisza345h769
+private func z32Decode(_ z32: String) -> Data {
+    let alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769"
+    let normalized = z32.lowercased()
+    
+    // Build lookup table
+    var lookup = [Character: Int]()
+    for (index, char) in alphabet.enumerated() {
+        lookup[char] = index
+    }
+    
+    // Decode 5 bits at a time
+    let bits: [Int] = normalized.compactMap { lookup[$0] }
+    
+    // Convert 5-bit values to bytes
+    var result = Data(capacity: (bits.count * 5) / 8)
+    var bitBuffer = 0
+    var bitsInBuffer = 0
+    
+    for value in bits {
+        bitBuffer = (bitBuffer << 5) | value
+        bitsInBuffer += 5
+        
+        if bitsInBuffer >= 8 {
+            bitsInBuffer -= 8
+            result.append(UInt8((bitBuffer >> bitsInBuffer) & 0xFF))
+        }
+    }
+    
+    return result
 }
 
