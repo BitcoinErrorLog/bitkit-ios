@@ -9,7 +9,7 @@
 #define Bitkit_Bridging_Header_h
 
 // Import PaykitMobile FFI types
-#include "PaykitMobileFFI.h"
+#include "paykit_mobileFFI.h"
 
 // Import PubkyNoise FFI types
 // The correct header is found via HEADER_SEARCH_PATHS which are conditionally

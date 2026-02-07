@@ -12008,6 +12008,264 @@ public func FfiConverterCallbackInterfaceLightningExecutorFfi_lower(_ v: Lightni
 
 
 /**
+ * FFI callback interface for persistent nonce storage.
+ *
+ * Mobile apps implement this trait to provide platform-native
+ * persistent storage for nonces used in replay attack prevention.
+ *
+ * # Security
+ *
+ * Implementations MUST:
+ * - Persist nonces across app restarts (critical for replay attack prevention)
+ * - Be thread-safe for concurrent access
+ * - Atomically check-and-mark nonces to prevent race conditions
+ *
+ * # Platform Recommendations
+ *
+ * - **Android**: Use SharedPreferences or Room database
+ * - **iOS**: Use UserDefaults or Keychain
+ *
+ * # Thread Safety
+ *
+ * All methods may be called from any thread. Implementations must be
+ * thread-safe.
+ */
+public protocol NonceStorageFfi: AnyObject, Sendable {
+    
+    /**
+     * Check if a nonce has been used, and mark it as used if not.
+     *
+     * This is the critical function for replay attack prevention.
+     * This operation MUST be atomic to prevent TOCTOU race conditions.
+     *
+     * # Arguments
+     *
+     * * `nonce_hex` - The 32-byte nonce as a hex string (64 characters)
+     * * `expires_at` - When this nonce's signature expires (Unix timestamp)
+     *
+     * # Returns
+     *
+     * - `true` - Nonce is fresh (never seen before), now marked as used
+     * - `false` - Nonce has been used (potential replay attack)
+     */
+    func checkAndMark(nonceHex: String, expiresAt: Int64)  -> Bool
+    
+    /**
+     * Check if a nonce has been used (read-only).
+     *
+     * Does not modify state. Useful for validation without marking.
+     *
+     * # Arguments
+     *
+     * * `nonce_hex` - The 32-byte nonce as a hex string (64 characters)
+     */
+    func isUsed(nonceHex: String)  -> Bool
+    
+    /**
+     * Clean up expired nonces to prevent unbounded storage growth.
+     *
+     * Should be called periodically (e.g., hourly or on app startup).
+     *
+     * # Arguments
+     *
+     * * `before` - Remove nonces that expired before this timestamp (Unix seconds)
+     *
+     * # Returns
+     *
+     * The number of nonces removed.
+     */
+    func cleanupExpired(before: Int64)  -> UInt32
+    
+    /**
+     * Get the count of tracked nonces (for monitoring/debugging).
+     */
+    func count()  -> UInt32
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceNonceStorageFFI {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceNonceStorageFfi] = [UniffiVTableCallbackInterfaceNonceStorageFfi(
+        checkAndMark: { (
+            uniffiHandle: UInt64,
+            nonceHex: RustBuffer,
+            expiresAt: Int64,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceNonceStorageFfi.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.checkAndMark(
+                     nonceHex: try FfiConverterString.lift(nonceHex),
+                     expiresAt: try FfiConverterInt64.lift(expiresAt)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        isUsed: { (
+            uniffiHandle: UInt64,
+            nonceHex: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceNonceStorageFfi.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.isUsed(
+                     nonceHex: try FfiConverterString.lift(nonceHex)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        cleanupExpired: { (
+            uniffiHandle: UInt64,
+            before: Int64,
+            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> UInt32 in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceNonceStorageFfi.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.cleanupExpired(
+                     before: try FfiConverterInt64.lift(before)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        count: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> UInt32 in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceNonceStorageFfi.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.count(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceNonceStorageFfi.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface NonceStorageFFI: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitNonceStorageFFI() {
+    uniffi_paykit_mobile_fn_init_callback_vtable_noncestorageffi(UniffiCallbackInterfaceNonceStorageFFI.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceNonceStorageFfi {
+    fileprivate static let handleMap = UniffiHandleMap<NonceStorageFfi>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceNonceStorageFfi : FfiConverter {
+    typealias SwiftType = NonceStorageFfi
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceNonceStorageFfi_lift(_ handle: UInt64) throws -> NonceStorageFfi {
+    return try FfiConverterCallbackInterfaceNonceStorageFfi.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceNonceStorageFfi_lower(_ v: NonceStorageFfi) -> UInt64 {
+    return FfiConverterCallbackInterfaceNonceStorageFfi.lower(v)
+}
+
+
+
+
+/**
  * Callback interface for authenticated Pubky storage operations.
  *
  * Mobile apps implement this to wrap their Pubky SDK session.
@@ -13614,22 +13872,44 @@ public func removeNoiseEndpoint(transport: AuthenticatedTransportFfi)throws   {t
 }
 }
 /**
- * Sign a message with Ed25519 secret key.
+ * Sign typed content per PUBKY_UNIFIED_KEY_DELEGATION_SPEC v0.2.
+ *
+ * This is a TYPED signing function, not a generic "sign anything" API.
+ * The content_type parameter constrains what is being signed.
  *
  * # Arguments
  *
- * * `secret_key_hex` - The Ed25519 secret key in hex format.
- * * `message` - The message bytes to sign.
+ * * `secret_key_hex` - Ed25519 secret key (AppKey) in hex format
+ * * `issuer_peerid_hex` - Root PKARR Ed25519 public key in hex (32 bytes)
+ * * `cert_id_hex` - AppCert identifier in hex (16 bytes)
+ * * `content_type` - ASCII label describing what is being signed (e.g., "pubky.post", "paykit.receipt")
+ * * `payload` - The content payload bytes
  *
  * # Returns
  *
- * The 64-byte signature in hex format.
+ * 64-byte Ed25519 signature in hex format.
+ *
+ * # Example
+ *
+ * ```ignore
+ * // Sign a payment receipt
+ * let sig = sign_typed_content(
+ * app_secret_hex,
+ * issuer_peerid_hex,
+ * cert_id_hex,
+ * "paykit.receipt",
+ * receipt_bytes,
+ * )?;
+ * ```
  */
-public func signMessage(secretKeyHex: String, message: Data)throws  -> String  {
+public func signTypedContent(secretKeyHex: String, issuerPeeridHex: String, certIdHex: String, contentType: String, payload: Data)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePaykitMobileError_lift) {
-    uniffi_paykit_mobile_fn_func_sign_message(
+    uniffi_paykit_mobile_fn_func_sign_typed_content(
         FfiConverterString.lower(secretKeyHex),
-        FfiConverterData.lower(message),$0
+        FfiConverterString.lower(issuerPeeridHex),
+        FfiConverterString.lower(certIdHex),
+        FfiConverterString.lower(contentType),
+        FfiConverterData.lower(payload),$0
     )
 })
 }
@@ -13651,6 +13931,34 @@ public func verifySignature(publicKeyHex: String, message: Data, signatureHex: S
     uniffi_paykit_mobile_fn_func_verify_signature(
         FfiConverterString.lower(publicKeyHex),
         FfiConverterData.lower(message),
+        FfiConverterString.lower(signatureHex),$0
+    )
+})
+}
+/**
+ * Verify typed content signature per PUBKY_UNIFIED_KEY_DELEGATION_SPEC v0.2.
+ *
+ * # Arguments
+ *
+ * * `public_key_hex` - Ed25519 public key (AppKey) in hex format
+ * * `issuer_peerid_hex` - Root PKARR Ed25519 public key in hex (32 bytes)
+ * * `cert_id_hex` - AppCert identifier in hex (16 bytes)
+ * * `content_type` - ASCII label describing what was signed
+ * * `payload` - The content payload bytes
+ * * `signature_hex` - The signature to verify in hex (64 bytes)
+ *
+ * # Returns
+ *
+ * True if the signature is valid, false otherwise.
+ */
+public func verifyTypedContent(publicKeyHex: String, issuerPeeridHex: String, certIdHex: String, contentType: String, payload: Data, signatureHex: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypePaykitMobileError_lift) {
+    uniffi_paykit_mobile_fn_func_verify_typed_content(
+        FfiConverterString.lower(publicKeyHex),
+        FfiConverterString.lower(issuerPeeridHex),
+        FfiConverterString.lower(certIdHex),
+        FfiConverterString.lower(contentType),
+        FfiConverterData.lower(payload),
         FfiConverterString.lower(signatureHex),$0
     )
 })
@@ -13755,10 +14063,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_paykit_mobile_checksum_func_remove_noise_endpoint() != 4253) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_paykit_mobile_checksum_func_sign_message() != 33882) {
+    if (uniffi_paykit_mobile_checksum_func_sign_typed_content() != 39032) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_paykit_mobile_checksum_func_verify_signature() != 15460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_paykit_mobile_checksum_func_verify_typed_content() != 24129) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_paykit_mobile_checksum_method_authenticatedtransportffi_delete() != 27910) {
@@ -14154,6 +14465,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_paykit_mobile_checksum_method_lightningexecutorffi_verify_preimage() != 46457) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_paykit_mobile_checksum_method_noncestorageffi_check_and_mark() != 20325) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_paykit_mobile_checksum_method_noncestorageffi_is_used() != 55089) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_paykit_mobile_checksum_method_noncestorageffi_cleanup_expired() != 14457) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_paykit_mobile_checksum_method_noncestorageffi_count() != 11572) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_paykit_mobile_checksum_method_pubkyauthenticatedstoragecallback_put() != 27074) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14178,6 +14501,7 @@ private let initializationResult: InitializationResult = {
 
     uniffiCallbackInitBitcoinExecutorFFI()
     uniffiCallbackInitLightningExecutorFFI()
+    uniffiCallbackInitNonceStorageFFI()
     uniffiCallbackInitPubkyAuthenticatedStorageCallback()
     uniffiCallbackInitPubkyUnauthenticatedStorageCallback()
     uniffiCallbackInitReceiptGeneratorCallback()

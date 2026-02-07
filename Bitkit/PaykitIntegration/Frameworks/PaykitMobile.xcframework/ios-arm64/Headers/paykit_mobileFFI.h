@@ -314,6 +314,34 @@ typedef void (*UniffiCallbackInterfaceLightningExecutorFfiMethod4)(uint64_t, Rus
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD0
+typedef void (*UniffiCallbackInterfaceNonceStorageFfiMethod0)(uint64_t, RustBuffer, int64_t, int8_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD1
+typedef void (*UniffiCallbackInterfaceNonceStorageFfiMethod1)(uint64_t, RustBuffer, int8_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD2
+typedef void (*UniffiCallbackInterfaceNonceStorageFfiMethod2)(uint64_t, int64_t, uint32_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_NONCE_STORAGE_FFI_METHOD3
+typedef void (*UniffiCallbackInterfaceNonceStorageFfiMethod3)(uint64_t, uint32_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PUBKY_AUTHENTICATED_STORAGE_CALLBACK_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PUBKY_AUTHENTICATED_STORAGE_CALLBACK_METHOD0
 typedef void (*UniffiCallbackInterfacePubkyAuthenticatedStorageCallbackMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer* _Nonnull, 
@@ -384,6 +412,17 @@ typedef struct UniffiVTableCallbackInterfaceLightningExecutorFfi {
     UniffiCallbackInterfaceLightningExecutorFfiMethod4 _Nonnull verifyPreimage;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceLightningExecutorFfi;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_NONCE_STORAGE_FFI
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_NONCE_STORAGE_FFI
+typedef struct UniffiVTableCallbackInterfaceNonceStorageFfi {
+    UniffiCallbackInterfaceNonceStorageFfiMethod0 _Nonnull checkAndMark;
+    UniffiCallbackInterfaceNonceStorageFfiMethod1 _Nonnull isUsed;
+    UniffiCallbackInterfaceNonceStorageFfiMethod2 _Nonnull cleanupExpired;
+    UniffiCallbackInterfaceNonceStorageFfiMethod3 _Nonnull count;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceNonceStorageFfi;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_PUBKY_AUTHENTICATED_STORAGE_CALLBACK
@@ -1141,6 +1180,11 @@ void uniffi_paykit_mobile_fn_init_callback_vtable_bitcoinexecutorffi(const Uniff
 void uniffi_paykit_mobile_fn_init_callback_vtable_lightningexecutorffi(const UniffiVTableCallbackInterfaceLightningExecutorFfi* _Nonnull vtable
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_INIT_CALLBACK_VTABLE_NONCESTORAGEFFI
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_INIT_CALLBACK_VTABLE_NONCESTORAGEFFI
+void uniffi_paykit_mobile_fn_init_callback_vtable_noncestorageffi(const UniffiVTableCallbackInterfaceNonceStorageFfi* _Nonnull vtable
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_INIT_CALLBACK_VTABLE_PUBKYAUTHENTICATEDSTORAGECALLBACK
 #define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_INIT_CALLBACK_VTABLE_PUBKYAUTHENTICATEDSTORAGECALLBACK
 void uniffi_paykit_mobile_fn_init_callback_vtable_pubkyauthenticatedstoragecallback(const UniffiVTableCallbackInterfacePubkyAuthenticatedStorageCallback* _Nonnull vtable
@@ -1306,14 +1350,19 @@ void uniffi_paykit_mobile_fn_func_publish_noise_endpoint(void*_Nonnull transport
 void uniffi_paykit_mobile_fn_func_remove_noise_endpoint(void*_Nonnull transport, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_SIGN_MESSAGE
-#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_SIGN_MESSAGE
-RustBuffer uniffi_paykit_mobile_fn_func_sign_message(RustBuffer secret_key_hex, RustBuffer message, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_SIGN_TYPED_CONTENT
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_SIGN_TYPED_CONTENT
+RustBuffer uniffi_paykit_mobile_fn_func_sign_typed_content(RustBuffer secret_key_hex, RustBuffer issuer_peerid_hex, RustBuffer cert_id_hex, RustBuffer content_type, RustBuffer payload, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_VERIFY_SIGNATURE
 #define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_VERIFY_SIGNATURE
 int8_t uniffi_paykit_mobile_fn_func_verify_signature(RustBuffer public_key_hex, RustBuffer message, RustBuffer signature_hex, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_VERIFY_TYPED_CONTENT
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_FN_FUNC_VERIFY_TYPED_CONTENT
+int8_t uniffi_paykit_mobile_fn_func_verify_typed_content(RustBuffer public_key_hex, RustBuffer issuer_peerid_hex, RustBuffer cert_id_hex, RustBuffer content_type, RustBuffer payload, RustBuffer signature_hex, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_PAYKIT_MOBILE_RUSTBUFFER_ALLOC
@@ -1764,15 +1813,21 @@ uint16_t uniffi_paykit_mobile_checksum_func_remove_noise_endpoint(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_SIGN_MESSAGE
-#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_SIGN_MESSAGE
-uint16_t uniffi_paykit_mobile_checksum_func_sign_message(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_SIGN_TYPED_CONTENT
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_SIGN_TYPED_CONTENT
+uint16_t uniffi_paykit_mobile_checksum_func_sign_typed_content(void
     
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_VERIFY_SIGNATURE
 #define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_VERIFY_SIGNATURE
 uint16_t uniffi_paykit_mobile_checksum_func_verify_signature(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_VERIFY_TYPED_CONTENT
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_FUNC_VERIFY_TYPED_CONTENT
+uint16_t uniffi_paykit_mobile_checksum_func_verify_typed_content(void
     
 );
 #endif
@@ -2559,6 +2614,30 @@ uint16_t uniffi_paykit_mobile_checksum_method_lightningexecutorffi_get_payment(v
 #ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_LIGHTNINGEXECUTORFFI_VERIFY_PREIMAGE
 #define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_LIGHTNINGEXECUTORFFI_VERIFY_PREIMAGE
 uint16_t uniffi_paykit_mobile_checksum_method_lightningexecutorffi_verify_preimage(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_CHECK_AND_MARK
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_CHECK_AND_MARK
+uint16_t uniffi_paykit_mobile_checksum_method_noncestorageffi_check_and_mark(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_IS_USED
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_IS_USED
+uint16_t uniffi_paykit_mobile_checksum_method_noncestorageffi_is_used(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_CLEANUP_EXPIRED
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_CLEANUP_EXPIRED
+uint16_t uniffi_paykit_mobile_checksum_method_noncestorageffi_cleanup_expired(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_PAYKIT_MOBILE_CHECKSUM_METHOD_NONCESTORAGEFFI_COUNT
+uint16_t uniffi_paykit_mobile_checksum_method_noncestorageffi_count(void
     
 );
 #endif
