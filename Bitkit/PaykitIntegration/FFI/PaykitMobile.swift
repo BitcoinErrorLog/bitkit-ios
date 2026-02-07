@@ -1926,7 +1926,7 @@ public protocol PaykitClientProtocol: AnyObject, Sendable {
     /**
      * Get health status of a specific method.
      */
-    func getHealthStatus(methodId: String)  -> HealthStatus?
+    func getPaykitHealthStatus(methodId: String)  -> PaykitHealthStatus?
     
     /**
      * Get all in-progress payments.
@@ -2653,8 +2653,8 @@ open func generatePaymentProof(methodId: String, executionDataJson: String)throw
     /**
      * Get health status of a specific method.
      */
-open func getHealthStatus(methodId: String) -> HealthStatus?  {
-    return try!  FfiConverterOptionTypeHealthStatus.lift(try! rustCall() {
+open func getPaykitHealthStatus(methodId: String) -> PaykitHealthStatus?  {
+    return try!  FfiConverterOptionTypePaykitHealthStatus.lift(try! rustCall() {
     uniffi_paykit_mobile_fn_method_paykitclient_get_health_status(self.uniffiClonePointer(),
         FfiConverterString.lower(methodId),$0
     )
@@ -5778,14 +5778,14 @@ public func FfiConverterTypeFallbackExecutionResult_lower(_ value: FallbackExecu
  */
 public struct HealthCheckResult {
     public var methodId: String
-    public var status: HealthStatus
+    public var status: PaykitHealthStatus
     public var checkedAt: Int64
     public var latencyMs: UInt64?
     public var error: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(methodId: String, status: HealthStatus, checkedAt: Int64, latencyMs: UInt64?, error: String?) {
+    public init(methodId: String, status: PaykitHealthStatus, checkedAt: Int64, latencyMs: UInt64?, error: String?) {
         self.methodId = methodId
         self.status = status
         self.checkedAt = checkedAt
@@ -5838,7 +5838,7 @@ public struct FfiConverterTypeHealthCheckResult: FfiConverterRustBuffer {
         return
             try HealthCheckResult(
                 methodId: FfiConverterString.read(from: &buf), 
-                status: FfiConverterTypeHealthStatus.read(from: &buf), 
+                status: FfiConverterTypePaykitHealthStatus.read(from: &buf), 
                 checkedAt: FfiConverterInt64.read(from: &buf), 
                 latencyMs: FfiConverterOptionUInt64.read(from: &buf), 
                 error: FfiConverterOptionString.read(from: &buf)
@@ -5847,7 +5847,7 @@ public struct FfiConverterTypeHealthCheckResult: FfiConverterRustBuffer {
 
     public static func write(_ value: HealthCheckResult, into buf: inout [UInt8]) {
         FfiConverterString.write(value.methodId, into: &buf)
-        FfiConverterTypeHealthStatus.write(value.status, into: &buf)
+        FfiConverterTypePaykitHealthStatus.write(value.status, into: &buf)
         FfiConverterInt64.write(value.checkedAt, into: &buf)
         FfiConverterOptionUInt64.write(value.latencyMs, into: &buf)
         FfiConverterOptionString.write(value.error, into: &buf)
@@ -9782,7 +9782,7 @@ extension BitcoinNetworkFfi: Equatable, Hashable {}
  * Health status of a payment method.
  */
 
-public enum HealthStatus {
+public enum PaykitHealthStatus {
     
     case healthy
     case degraded
@@ -9792,16 +9792,16 @@ public enum HealthStatus {
 
 
 #if compiler(>=6)
-extension HealthStatus: Sendable {}
+extension PaykitHealthStatus: Sendable {}
 #endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeHealthStatus: FfiConverterRustBuffer {
-    typealias SwiftType = HealthStatus
+public struct FfiConverterTypePaykitHealthStatus: FfiConverterRustBuffer {
+    typealias SwiftType = PaykitHealthStatus
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HealthStatus {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaykitHealthStatus {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
@@ -9817,7 +9817,7 @@ public struct FfiConverterTypeHealthStatus: FfiConverterRustBuffer {
         }
     }
 
-    public static func write(_ value: HealthStatus, into buf: inout [UInt8]) {
+    public static func write(_ value: PaykitHealthStatus, into buf: inout [UInt8]) {
         switch value {
         
         
@@ -9844,19 +9844,19 @@ public struct FfiConverterTypeHealthStatus: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeHealthStatus_lift(_ buf: RustBuffer) throws -> HealthStatus {
-    return try FfiConverterTypeHealthStatus.lift(buf)
+public func FfiConverterTypePaykitHealthStatus_lift(_ buf: RustBuffer) throws -> PaykitHealthStatus {
+    return try FfiConverterTypePaykitHealthStatus.lift(buf)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeHealthStatus_lower(_ value: HealthStatus) -> RustBuffer {
-    return FfiConverterTypeHealthStatus.lower(value)
+public func FfiConverterTypePaykitHealthStatus_lower(_ value: PaykitHealthStatus) -> RustBuffer {
+    return FfiConverterTypePaykitHealthStatus.lower(value)
 }
 
 
-extension HealthStatus: Equatable, Hashable {}
+extension PaykitHealthStatus: Equatable, Hashable {}
 
 
 
@@ -13186,8 +13186,8 @@ fileprivate struct FfiConverterOptionTypeSelectionPreferences: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeHealthStatus: FfiConverterRustBuffer {
-    typealias SwiftType = HealthStatus?
+fileprivate struct FfiConverterOptionTypePaykitHealthStatus: FfiConverterRustBuffer {
+    typealias SwiftType = PaykitHealthStatus?
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
         guard let value = value else {
@@ -13195,13 +13195,13 @@ fileprivate struct FfiConverterOptionTypeHealthStatus: FfiConverterRustBuffer {
             return
         }
         writeInt(&buf, Int8(1))
-        FfiConverterTypeHealthStatus.write(value, into: &buf)
+        FfiConverterTypePaykitHealthStatus.write(value, into: &buf)
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
-        case 1: return try FfiConverterTypeHealthStatus.read(from: &buf)
+        case 1: return try FfiConverterTypePaykitHealthStatus.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }

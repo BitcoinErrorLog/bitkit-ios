@@ -88,7 +88,7 @@ public final class BitkitBitcoinExecutor: BitcoinExecutorFfi {
         targetBlocks: UInt32
     ) throws -> UInt64 {
         // Use LDK node's fee estimation if available
-        if lightningService.node != nil {
+        if lightningService.isNodeAvailable {
             // Typical P2WPKH transaction is ~140 vbytes
             let txSize: UInt64 = 140
             

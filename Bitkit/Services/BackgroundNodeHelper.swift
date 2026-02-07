@@ -24,7 +24,7 @@ actor BackgroundNodeHelper {
         let startTime = Date()
         Logger.info("🔔 Starting bounded node work", context: "BackgroundNodeHelper")
         
-        try StateLocker.lock(.lightning, wait: 5)
+        try await StateLocker.lock(.lightning, wait: 5)
         defer {
             try? StateLocker.unlock(.lightning)
             let elapsed = Date().timeIntervalSince(startTime)
@@ -32,7 +32,7 @@ actor BackgroundNodeHelper {
         }
         
         do {
-            if LightningService.shared.node == nil {
+            if !LightningService.shared.isNodeAvailable {
                 try await LightningService.shared.setup(walletIndex: walletIndex)
                 try await LightningService.shared.start { _ in }
             }

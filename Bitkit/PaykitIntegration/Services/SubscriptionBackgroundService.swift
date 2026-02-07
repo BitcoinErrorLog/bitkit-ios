@@ -263,7 +263,7 @@ public class SubscriptionBackgroundService {
         
         while Date().timeIntervalSince(startTime) < timeout {
             // Check if node is available via LightningService
-            if LightningService.shared.node != nil {
+            if LightningService.shared.isNodeAvailable {
                 return true
             }
             

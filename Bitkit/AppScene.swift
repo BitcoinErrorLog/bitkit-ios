@@ -139,6 +139,12 @@ struct AppScene: View {
             .onReceive(BackupService.shared.backupFailurePublisher) { intervalMinutes in
                 handleBackupFailure(intervalMinutes: intervalMinutes)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .paykitRequestPayment)) { notification in
+                handlePaykitRequestNotification(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .paykitSubscriptionProposal)) { notification in
+                handlePaykitSubscriptionNotification(notification)
+            }
     }
 
     @ViewBuilder
@@ -334,6 +340,11 @@ struct AppScene: View {
 
             // Schedule full backup after wallet create/restore to prevent epoch dates in backup status
             await BackupService.shared.scheduleFullBackup()
+
+            // Initialize Paykit after node is running
+            Task {
+                await initializePaykit()
+            }
         } catch {
             Logger.error(error, context: "Failed to start wallet")
             Haptics.notify(.error)
@@ -548,5 +559,38 @@ struct AppScene: View {
             title: t("settings__backup__failed_title"),
             description: tPlural("settings__backup__failed_message", arguments: ["interval": intervalMinutes])
         )
+    }
+
+    // MARK: - Paykit Integration
+
+    private func initializePaykit() async {
+        let success = await PaykitIntegrationHelper.setupAsync()
+        if success {
+            Logger.info("Paykit initialized successfully after node started", context: "AppScene")
+        } else {
+            Logger.error("Failed to initialize Paykit after node started", context: "AppScene")
+        }
+    }
+
+    private func handlePaykitRequestNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let requestId = userInfo["requestId"] as? String
+        else {
+            return
+        }
+        Logger.info("Handling Paykit request notification: \(requestId)", context: "AppScene")
+        app.pendingPaykitRequestId = requestId
+        navigation.navigate(.paykitPaymentRequests)
+    }
+
+    private func handlePaykitSubscriptionNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let subscriptionId = userInfo["subscriptionId"] as? String
+        else {
+            return
+        }
+        Logger.info("Handling Paykit subscription notification: \(subscriptionId)", context: "AppScene")
+        app.pendingPaykitSubscriptionId = subscriptionId
+        navigation.navigate(.paykitSubscriptions)
     }
 }

@@ -5,6 +5,12 @@ import SwiftUI
 // Communication bridge between delegates and SwiftUI views
 extension Notification.Name {
     static let quickActionSelected = Notification.Name("quickActionSelected")
+    static let paykitPayContact = Notification.Name("paykitPayContact")
+    static let paykitPaymentFailed = Notification.Name("paykitPaymentFailed")
+    static let paykitRequestPayment = Notification.Name("paykitRequestPayment")
+    static let paykitSubscriptionProposal = Notification.Name("paykitSubscriptionProposal")
+    static let profileUpdated = Notification.Name("profileUpdated")
+    static let incomingPaymentNotification = Notification.Name("incomingPaymentNotification")
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
@@ -22,6 +28,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 }
             }
         }
+
+        // Register Paykit background tasks
+        PaykitPollingService.shared.registerBackgroundTask()
 
         return true
     }

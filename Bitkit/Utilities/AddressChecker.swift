@@ -60,7 +60,7 @@ enum AddressCheckerError: Error {
 /// when they support native address lookup.
 class AddressChecker {
     static func getAddressInfo(address: String) async throws -> AddressInfo {
-        guard let url = URL(string: "\(Env.esploraServerUrl)/address/\(address)") else {
+        guard let url = URL(string: "\(Env.blockExplorerUrl)/address/\(address)") else {
             throw AddressCheckerError.invalidUrl
         }
 
@@ -85,7 +85,7 @@ class AddressChecker {
     /// Fetches full transaction details from the Esplora endpoint for the given txid.
     /// - Parameter txid: Hex transaction identifier.
     static func getTransaction(txid: String) async throws -> TxDetails {
-        guard let url = URL(string: "\(Env.esploraServerUrl)/tx/\(txid)") else {
+        guard let url = URL(string: "\(Env.blockExplorerUrl)/tx/\(txid)") else {
             throw AddressCheckerError.invalidUrl
         }
 

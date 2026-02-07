@@ -481,7 +481,7 @@ public final class PaykitPollingService {
         let maxAttempts = 30  // 30 seconds timeout
         
         while attempts < maxAttempts {
-            if LightningService.shared.node != nil {
+            if LightningService.shared.isNodeAvailable {
                 return
             }
             try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second

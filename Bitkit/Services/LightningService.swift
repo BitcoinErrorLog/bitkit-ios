@@ -654,6 +654,7 @@ class LightningService {
 // MARK: UI Helpers (Published via WalletViewModel)
 
 extension LightningService {
+    var isNodeAvailable: Bool { node != nil }
     var nodeId: String? { node?.nodeId() }
 
     // Use cached values to avoid blocking LDK calls on main thread

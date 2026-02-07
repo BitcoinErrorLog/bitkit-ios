@@ -98,6 +98,22 @@ enum Route: Hashable {
     case ldkDebug
     case orders
     case logs
+
+    // Paykit routes
+    case paykitDashboard
+    case paykitProfileEdit
+    case paykitContacts
+    case paykitContactDetail(String)
+    case paykitContactDiscovery
+    case paykitReceipts
+    case paykitReceiptDetail(String)
+    case paykitSubscriptions
+    case paykitAutoPay
+    case paykitPaymentRequests
+    case paykitNoisePayment
+    case paykitPrivateEndpoints
+    case paykitRotationSettings
+    case paykitSessionManagement
 }
 
 @MainActor
