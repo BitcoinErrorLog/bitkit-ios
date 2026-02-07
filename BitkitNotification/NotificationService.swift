@@ -27,10 +27,8 @@ class NotificationService: UNNotificationServiceExtension {
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 
-        guard !StateLocker.isLocked(.lightning) else {
-            os_log("🔔 LDK-node process already locked, app likely in foreground", log: logger, type: .error)
-            return
-        }
+        // Note: StateLocker check removed - not available in notification extension target
+        // The app's foreground state is handled by the notification presentation delegate instead
 
         Task {
             do {

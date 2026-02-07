@@ -129,8 +129,7 @@ class WalletViewModel: ObservableObject {
             try await lightningService.setup(
                 walletIndex: walletIndex,
                 electrumServerUrl: electrumServerUrl,
-                rgsServerUrl: rgsServerUrl.isEmpty ? nil : rgsServerUrl,
-                channelMigration: channelMigration
+                rgsServerUrl: rgsServerUrl.isEmpty ? nil : rgsServerUrl
             )
             try await lightningService.start(onEvent: { event in
                 Task { @MainActor in
@@ -219,7 +218,7 @@ class WalletViewModel: ObservableObject {
 
     func stopLightningNode(clearEventCallback: Bool = false) async throws {
         nodeLifecycleState = .stopping
-        try await lightningService.stop(clearEventCallback: clearEventCallback)
+        try await lightningService.stop()
         nodeLifecycleState = .stopped
         syncState()
     }

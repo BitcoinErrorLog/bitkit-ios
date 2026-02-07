@@ -196,7 +196,8 @@ class BalanceManager {
                 )
             }
 
-            if await !coreService.activity.hasOnchainActivityForChannel(channelId: channelId) {
+            // TODO: hasOnchainActivityForChannel not yet available in fork's ActivityService
+            if true {
                 pendingAmount += transfer.amountSats
             }
         }

@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import BitkitCore
 import SwiftUI
 
@@ -243,3 +244,4 @@ struct SweepConfirmView: View {
         }
     }
 }
+#endif

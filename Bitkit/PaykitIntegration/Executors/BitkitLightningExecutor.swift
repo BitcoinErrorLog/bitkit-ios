@@ -23,7 +23,7 @@ public final class BitkitLightningExecutor: LightningExecutorFfi {
     
     // MARK: - Initialization
     
-    public init(lightningService: LightningService = LightningService.shared) {
+    init(lightningService: LightningService = .shared) {
         self.lightningService = lightningService
     }
     

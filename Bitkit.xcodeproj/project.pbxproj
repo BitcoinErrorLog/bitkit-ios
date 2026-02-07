@@ -7,18 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		18D65E002EB964B500252335 /* VssRustClientFfi in Frameworks */ = {isa = PBXBuildFile; productRef = 18D65DFF2EB964B500252335 /* VssRustClientFfi */; };
 		18D65E022EB964BD00252335 /* VssRustClientFfi in Frameworks */ = {isa = PBXBuildFile; productRef = 18D65E012EB964BD00252335 /* VssRustClientFfi */; };
-		4AAB08CA2E1FE77600BA63DF /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 4AAB08C92E1FE77600BA63DF /* Lottie */; };
-		4AFCA3702E05933800205CAE /* Zip in Frameworks */ = {isa = PBXBuildFile; productRef = 4AFCA36F2E05933800205CAE /* Zip */; };
+		353338626165333561643362 /* PubkyNoise.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 313438323636356161626437 /* PubkyNoise.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4AFCA3722E0596D900205CAE /* Zip in Frameworks */ = {isa = PBXBuildFile; productRef = 4AFCA3712E0596D900205CAE /* Zip */; };
-		961058E32C355B5500E1F1D8 /* BitkitNotification.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 961058DC2C355B5500E1F1D8 /* BitkitNotification.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		968FDF162DFAFE230053CD7F /* LDKNode in Frameworks */ = {isa = PBXBuildFile; productRef = 9613018B2C5022D700878183 /* LDKNode */; };
+		524EFA4E2EF1CBF900BA8372 /* LDKNode in Frameworks */ = {isa = PBXBuildFile; productRef = 9613018B2C5022D700878183 /* LDKNode */; };
+		524EFA4F2EF1CBF900BA8372 /* LightningDevKit in Frameworks */ = {isa = PBXBuildFile; productRef = 966DE66F2C51210000A7B0EF /* LightningDevKit */; };
+		524EFA502EF1CBF900BA8372 /* secp256k1 in Frameworks */ = {isa = PBXBuildFile; productRef = 96E493A32C942FD1000E8BC2 /* secp256k1 */; };
+		524EFA512EF1CBF900BA8372 /* CodeScanner in Frameworks */ = {isa = PBXBuildFile; productRef = 96E20CD32CB6D91A00C24149 /* CodeScanner */; };
+		524EFA522EF1CBF900BA8372 /* BitkitCore in Frameworks */ = {isa = PBXBuildFile; productRef = 96DEA0392DE8BBA1009932BF /* BitkitCore */; };
+		524EFA532EF1CBF900BA8372 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 96204B772DE9AA43007BAA26 /* SQLite */; };
+		524EFA542EF1CBF900BA8372 /* Zip in Frameworks */ = {isa = PBXBuildFile; productRef = 4AFCA36F2E05933800205CAE /* Zip */; };
+		524EFA552EF1CBF900BA8372 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 4AAB08C92E1FE77600BA63DF /* Lottie */; };
+		524EFA562EF1CBF900BA8372 /* VssRustClientFfi in Frameworks */ = {isa = PBXBuildFile; productRef = 18D65DFF2EB964B500252335 /* VssRustClientFfi */; };
+		653434323064303830666662 /* PaykitMobile.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 356364643963336664373536 /* PaykitMobile.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		96204B762DE9A91A007BAA26 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 96204B752DE9A91A007BAA26 /* SQLite */; };
 		968FE1402DFB016B0053CD7F /* LDKNode in Frameworks */ = {isa = PBXBuildFile; productRef = 968FE13F2DFB016B0053CD7F /* LDKNode */; };
-		96DEA03A2DE8BBA1009932BF /* BitkitCore in Frameworks */ = {isa = PBXBuildFile; productRef = 96DEA0392DE8BBA1009932BF /* BitkitCore */; };
 		96DEA03C2DE8BBAB009932BF /* BitkitCore in Frameworks */ = {isa = PBXBuildFile; productRef = 96DEA03B2DE8BBAB009932BF /* BitkitCore */; };
-		96E20CD42CB6D91A00C24149 /* CodeScanner in Frameworks */ = {isa = PBXBuildFile; productRef = 96E20CD32CB6D91A00C24149 /* CodeScanner */; };
-		96E493A42C942FD1000E8BC2 /* secp256k1 in Frameworks */ = {isa = PBXBuildFile; productRef = 96E493A32C942FD1000E8BC2 /* secp256k1 */; };
 		96E493A62C94317D000E8BC2 /* secp256k1 in Frameworks */ = {isa = PBXBuildFile; productRef = 96E493A52C94317D000E8BC2 /* secp256k1 */; };
 		96E493A82C943184000E8BC2 /* secp256k1 in Frameworks */ = {isa = PBXBuildFile; productRef = 96E493A72C943184000E8BC2 /* secp256k1 */; };
 /* End PBXBuildFile section */
@@ -48,41 +52,23 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		961058E72C355B5500E1F1D8 /* Embed Foundation Extensions */ = {
+		663033386161356430326664 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 13;
+			dstSubfolderSpec = 10;
 			files = (
-				961058E32C355B5500E1F1D8 /* BitkitNotification.appex in Embed Foundation Extensions */,
+				653434323064303830666662 /* PaykitMobile.xcframework in Embed Frameworks */,
+				353338626165333561643362 /* PubkyNoise.xcframework in Embed Frameworks */,
 			);
-			name = "Embed Foundation Extensions";
+			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		96EMBED0012026012000FRAME /* Remove Static Framework Stubs */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Remove Static Framework Stubs";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Remove static framework stubs from app bundle\\n# LDKNodeFFI is a static library - its code is linked into the main executable.\\n# The empty framework structure causes iOS install errors.\\nFRAMEWORK_PATH=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Frameworks/LDKNodeFFI.framework\"\\n\\nif [ -d \"$FRAMEWORK_PATH\" ]; then\\n    echo \"Removing LDKNodeFFI static framework stub...\"\\n    rm -rf \"$FRAMEWORK_PATH\"\\n    echo \"Done.\"\\nfi\\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXFileReference section */
+		313438323636356161626437 /* PubkyNoise.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = PubkyNoise.xcframework; path = Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework; sourceTree = SOURCE_ROOT; };
+		356364643963336664373536 /* PaykitMobile.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = PaykitMobile.xcframework; path = Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework; sourceTree = SOURCE_ROOT; };
 		961058DC2C355B5500E1F1D8 /* BitkitNotification.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BitkitNotification.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		96FE1F612C2DE6AA006D0C8B /* Bitkit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bitkit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96FE1F722C2DE6AC006D0C8B /* BitkitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BitkitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -93,7 +79,14 @@
 		96A44F3D2CEF5EA700FBACFF /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AppDelegate_integration.swift,
 				Info.plist,
+				PaykitIntegration/BUILD_CONFIGURATION.md,
+				PipBackgroundHandler.swift,
+				PipSDK.swift,
+				PipSessionStore.swift,
+				Views/Settings/PaymentProfileView.swift,
+				Views/Wallets/Receive/PipReceiveView.swift,
 			);
 			target = 96FE1F602C2DE6AA006D0C8B /* Bitkit */;
 		};
@@ -106,16 +99,11 @@
 				Models/BlocktankNotificationType.swift,
 				Models/LnPeer.swift,
 				Models/Toast.swift,
-				Models/Transfer.swift,
-				Models/TransferType.swift,
 				Services/CoreService.swift,
 				Services/GeoService.swift,
 				Services/LightningService.swift,
 				Services/MigrationsService.swift,
-				Services/RNBackupClient.swift,
 				Services/ServiceQueue.swift,
-				Services/TransferStorage.swift,
-				Services/VssBackupClient.swift,
 				Services/VssStoreIdProvider.swift,
 				Utilities/Crypto.swift,
 				Utilities/Errors.swift,
@@ -128,28 +116,19 @@
 		96A44F3F2CEF5EA700FBACFF /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Constants/Env.swift,
 				Extensions/HexBytes.swift,
-				Extensions/PaymentDetails.swift,
 				Models/BlocktankNotificationType.swift,
-				Models/LnPeer.swift,
-				Models/Toast.swift,
-				Services/CoreService.swift,
-				Services/GeoService.swift,
-				Services/LightningService.swift,
-				Services/ServiceQueue.swift,
-				Services/VssStoreIdProvider.swift,
 				Utilities/Crypto.swift,
-				Utilities/Errors.swift,
-				Utilities/Keychain.swift,
-				Utilities/Logger.swift,
-				Utilities/StateLocker.swift,
 			);
 			target = 961058DB2C355B5500E1F1D8 /* BitkitNotification */;
 		};
 		96A44F5E2CEF5F5800FBACFF /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ExtensionEnv.swift,
+				ExtensionKeychain.swift,
+				ExtensionLogger.swift,
+				ExtensionReceivedTxSheetDetails.swift,
 				NotificationService.swift,
 			);
 			target = 961058DB2C355B5500E1F1D8 /* BitkitNotification */;
@@ -168,11 +147,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				968FE1402DFB016B0053CD7F /* LDKNode in Frameworks */,
-				96DEA03C2DE8BBAB009932BF /* BitkitCore in Frameworks */,
-				4AFCA3722E0596D900205CAE /* Zip in Frameworks */,
 				96E493A82C943184000E8BC2 /* secp256k1 in Frameworks */,
-				18D65E022EB964BD00252335 /* VssRustClientFfi in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,13 +155,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4AFCA3702E05933800205CAE /* Zip in Frameworks */,
-				968FDF162DFAFE230053CD7F /* LDKNode in Frameworks */,
-				18D65E002EB964B500252335 /* VssRustClientFfi in Frameworks */,
-				96E493A42C942FD1000E8BC2 /* secp256k1 in Frameworks */,
-				96DEA03A2DE8BBA1009932BF /* BitkitCore in Frameworks */,
-				96E20CD42CB6D91A00C24149 /* CodeScanner in Frameworks */,
-				4AAB08CA2E1FE77600BA63DF /* Lottie in Frameworks */,
+				524EFA562EF1CBF900BA8372 /* VssRustClientFfi in Frameworks */,
+				524EFA552EF1CBF900BA8372 /* Lottie in Frameworks */,
+				524EFA542EF1CBF900BA8372 /* Zip in Frameworks */,
+				524EFA532EF1CBF900BA8372 /* SQLite in Frameworks */,
+				524EFA522EF1CBF900BA8372 /* BitkitCore in Frameworks */,
+				524EFA512EF1CBF900BA8372 /* CodeScanner in Frameworks */,
+				524EFA502EF1CBF900BA8372 /* secp256k1 in Frameworks */,
+				524EFA4F2EF1CBF900BA8372 /* LightningDevKit in Frameworks */,
+				524EFA4E2EF1CBF900BA8372 /* LDKNode in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -194,6 +171,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				96204B762DE9A91A007BAA26 /* SQLite in Frameworks */,
 				96E493A62C94317D000E8BC2 /* secp256k1 in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -211,6 +189,8 @@
 		961058EC2C35798C00E1F1D8 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				356364643963336664373536 /* PaykitMobile.xcframework */,
+				313438323636356161626437 /* PubkyNoise.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -256,10 +236,6 @@
 			name = BitkitNotification;
 			packageProductDependencies = (
 				96E493A72C943184000E8BC2 /* secp256k1 */,
-				96DEA03B2DE8BBAB009932BF /* BitkitCore */,
-				4AFCA3712E0596D900205CAE /* Zip */,
-				968FE13F2DFB016B0053CD7F /* LDKNode */,
-				18D65E012EB964BD00252335 /* VssRustClientFfi */,
 			);
 			productName = BitkitNotification;
 			productReference = 961058DC2C355B5500E1F1D8 /* BitkitNotification.appex */;
@@ -272,8 +248,7 @@
 				96FE1F5D2C2DE6AA006D0C8B /* Sources */,
 				96FE1F5E2C2DE6AA006D0C8B /* Frameworks */,
 				96FE1F5F2C2DE6AA006D0C8B /* Resources */,
-				961058E72C355B5500E1F1D8 /* Embed Foundation Extensions */,
-				96EMBED0012026012000FRAME /* Remove Static Framework Stubs */,
+				663033386161356430326664 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -286,9 +261,11 @@
 			name = Bitkit;
 			packageProductDependencies = (
 				9613018B2C5022D700878183 /* LDKNode */,
+				966DE66F2C51210000A7B0EF /* LightningDevKit */,
 				96E493A32C942FD1000E8BC2 /* secp256k1 */,
 				96E20CD32CB6D91A00C24149 /* CodeScanner */,
 				96DEA0392DE8BBA1009932BF /* BitkitCore */,
+				96204B772DE9AA43007BAA26 /* SQLite */,
 				4AFCA36F2E05933800205CAE /* Zip */,
 				4AAB08C92E1FE77600BA63DF /* Lottie */,
 				18D65DFF2EB964B500252335 /* VssRustClientFfi */,
@@ -316,6 +293,7 @@
 			name = BitkitTests;
 			packageProductDependencies = (
 				96E493A52C94317D000E8BC2 /* secp256k1 */,
+				96204B752DE9A91A007BAA26 /* SQLite */,
 			);
 			productName = BitkitTests;
 			productReference = 96FE1F722C2DE6AC006D0C8B /* BitkitTests.xctest */;
@@ -350,7 +328,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1540;
-				LastUpgradeCheck = 1540;
+				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					961058DB2C355B5500E1F1D8 = {
 						CreatedOnToolsVersion = 15.4;
@@ -392,13 +370,15 @@
 			);
 			mainGroup = 96FE1F582C2DE6AA006D0C8B;
 			packageReferences = (
+				961301892C50215500878183 /* XCRemoteSwiftPackageReference "SQLite.swift" */,
+				966DE66E2C51210000A7B0EF /* XCRemoteSwiftPackageReference "ldk-swift" */,
 				96E493A22C942FD1000E8BC2 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
 				96E20CD22CB6D91A00C24149 /* XCRemoteSwiftPackageReference "CodeScanner" */,
-				96DEA0382DE8BBA1009932BF /* XCRemoteSwiftPackageReference "bitkit-core" */,
+				96DEA0382DE8BBA1009932BF /* XCLocalSwiftPackageReference "bitkit-core" */,
 				4AFCA36E2E05933800205CAE /* XCRemoteSwiftPackageReference "Zip" */,
 				968FE13E2DFB016B0053CD7F /* XCRemoteSwiftPackageReference "ldk-node" */,
 				4AAB08C82E1FE77600BA63DF /* XCRemoteSwiftPackageReference "lottie-ios" */,
-				18D65DFE2EB9649F00252335 /* XCRemoteSwiftPackageReference "vss-rust-client-ffi" */,
+				18D65DFE2EB9649F00252335 /* XCLocalSwiftPackageReference "vss-rust-client-ffi" */,
 			);
 			productRefGroup = 96FE1F622C2DE6AA006D0C8B /* Products */;
 			projectDirPath = "";
@@ -498,8 +478,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BitkitNotification/BitkitNotification.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 174;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BitkitNotification/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BitkitNotification;
@@ -510,14 +489,14 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.3;
-				PRODUCT_BUNDLE_IDENTIFIER = to.bitkit.notification;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "to.bitkit-regtest.notification";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -526,8 +505,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BitkitNotification/BitkitNotification.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 174;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BitkitNotification/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BitkitNotification;
@@ -538,14 +516,14 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.3;
-				PRODUCT_BUNDLE_IDENTIFIER = to.bitkit.notification;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "to.bitkit-regtest.notification";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -555,6 +533,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -584,7 +563,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = KYH47R284B;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -606,6 +587,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG CHECK_GEOBLOCK $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -616,6 +598,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -645,7 +628,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = KYH47R284B;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -660,6 +645,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "CHECK_GEOBLOCK $(inherited)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -672,12 +658,22 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Bitkit/Bitkit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 174;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Bitkit/Preview Content\"";
-				DEVELOPMENT_TEAM = KYH47R284B;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers",
+				);
 				INFOPLIST_FILE = Bitkit/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Bitkit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -696,15 +692,31 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.0.3;
-				PRODUCT_BUNDLE_IDENTIFIER = to.bitkit;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-lpaykit_mobile",
+					"-lpubky_noise",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "to.bitkit-regtest";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64_x86_64-simulator/Headers";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/Bitkit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -715,12 +727,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Bitkit/Bitkit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 174;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Bitkit/Preview Content\"";
-				DEVELOPMENT_TEAM = KYH47R284B;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers",
+				);
 				INFOPLIST_FILE = Bitkit/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Bitkit;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -739,15 +757,26 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64",
+					"$(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.0.3;
-				PRODUCT_BUNDLE_IDENTIFIER = to.bitkit;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-lpaykit_mobile",
+					"-lpubky_noise",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "to.bitkit-regtest";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/FFI $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64/Headers $(PROJECT_DIR)/Bitkit/PaykitIntegration/Frameworks/PubkyNoise.xcframework/ios-arm64/Headers";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Bitkit/PaykitIntegration/Bitkit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -757,7 +786,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
@@ -769,7 +798,7 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited) UNIT_TESTING";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bitkit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bitkit";
 			};
 			name = Debug;
@@ -780,7 +809,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
@@ -791,7 +820,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bitkit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bitkit";
 			};
 			name = Release;
@@ -801,7 +830,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
@@ -812,7 +841,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Bitkit;
 			};
 			name = Debug;
@@ -822,7 +851,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KYH47R284B;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
@@ -833,7 +862,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Bitkit;
 			};
 			name = Release;
@@ -889,13 +918,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		18D65DFE2EB9649F00252335 /* XCRemoteSwiftPackageReference "vss-rust-client-ffi" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/synonymdev/vss-rust-client-ffi";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
+		18D65DFE2EB9649F00252335 /* XCLocalSwiftPackageReference "vss-rust-client-ffi" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../vss-rust-client-ffi";
 		};
 		4AAB08C82E1FE77600BA63DF /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -913,12 +938,28 @@
 				minimumVersion = 2.1.2;
 			};
 		};
+		961301892C50215500878183 /* XCRemoteSwiftPackageReference "SQLite.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stephencelis/SQLite.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.3;
+			};
+		};
 		962045C92DE998F1007BAA26 /* XCRemoteSwiftPackageReference "ldk-node" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/lightningdevkit/ldk-node";
 			requirement = {
 				branch = main;
 				kind = branch;
+			};
+		};
+		966DE66E2C51210000A7B0EF /* XCRemoteSwiftPackageReference "ldk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/lightningdevkit/ldk-swift/";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.0.123;
 			};
 		};
 		968FE13E2DFB016B0053CD7F /* XCRemoteSwiftPackageReference "ldk-node" */ = {
@@ -929,13 +970,9 @@
 				kind = branch;
 			};
 		};
-		96DEA0382DE8BBA1009932BF /* XCRemoteSwiftPackageReference "bitkit-core" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/synonymdev/bitkit-core";
-			requirement = {
-				branch = master;
-				kind = branch;
-			};
+		96DEA0382DE8BBA1009932BF /* XCLocalSwiftPackageReference "bitkit-core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../bitkit-core";
 		};
 		96E20CD22CB6D91A00C24149 /* XCRemoteSwiftPackageReference "CodeScanner" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -949,8 +986,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.17.0;
+				kind = exactVersion;
+				version = 0.17.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -985,6 +1022,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 962045C92DE998F1007BAA26 /* XCRemoteSwiftPackageReference "ldk-node" */;
 			productName = LDKNode;
+		};
+		96204B752DE9A91A007BAA26 /* SQLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 961301892C50215500878183 /* XCRemoteSwiftPackageReference "SQLite.swift" */;
+			productName = SQLite;
+		};
+		96204B772DE9AA43007BAA26 /* SQLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 961301892C50215500878183 /* XCRemoteSwiftPackageReference "SQLite.swift" */;
+			productName = SQLite;
+		};
+		966DE66F2C51210000A7B0EF /* LightningDevKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 966DE66E2C51210000A7B0EF /* XCRemoteSwiftPackageReference "ldk-swift" */;
+			productName = LightningDevKit;
 		};
 		968FE13F2DFB016B0053CD7F /* LDKNode */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -337,6 +337,7 @@ class SheetViewModel: ObservableObject {
         }
     }
 
+    #if SWEEP_ENABLED
     var sweepPromptSheetItem: SweepPromptSheetItem? {
         get {
             guard let config = activeSheetConfiguration, config.id == .sweepPrompt else { return nil }
@@ -348,4 +349,5 @@ class SheetViewModel: ObservableObject {
             }
         }
     }
+    #endif
 }

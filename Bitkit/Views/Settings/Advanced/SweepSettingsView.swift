@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import BitkitCore
 import Lottie
 import SwiftUI
@@ -196,3 +197,4 @@ struct SweepSettingsView: View {
         }
     }
 }
+#endif

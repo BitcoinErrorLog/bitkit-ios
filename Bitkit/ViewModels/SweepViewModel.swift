@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import BitkitCore
 import Foundation
 import SwiftUI
@@ -321,3 +322,4 @@ class SweepViewModel: ObservableObject {
         }
     }
 }
+#endif

@@ -829,15 +829,15 @@ struct SubscriptionDetailSheet: View {
             BodyMBoldText("Details")
                 .foregroundColor(.textSecondary)
             
-            DetailRow(label: "Payment Method", value: subscription.methodId.capitalized)
-            DetailRow(label: "Total Payments", value: "\(subscription.paymentCount)")
-            DetailRow(label: "Total Spent", value: formatSats(subscription.totalSpent))
+            PaykitDetailRow(label: "Payment Method", value: subscription.methodId.capitalized)
+            PaykitDetailRow(label: "Total Payments", value: "\(subscription.paymentCount)")
+            PaykitDetailRow(label: "Total Spent", value: formatSats(subscription.totalSpent))
             
             if let nextPayment = subscription.nextPaymentAt {
-                DetailRow(label: "Next Payment", value: formatDate(nextPayment))
+                PaykitDetailRow(label: "Next Payment", value: formatDate(nextPayment))
             }
             
-            DetailRow(label: "Created", value: formatDate(subscription.createdAt))
+            PaykitDetailRow(label: "Created", value: formatDate(subscription.createdAt))
         }
         .padding(16)
         .background(Color.gray6)
@@ -986,7 +986,7 @@ struct SubscriptionDetailSheet: View {
     }
 }
 
-struct DetailRow: View {
+struct PaykitDetailRow: View {
     let label: String
     let value: String
     

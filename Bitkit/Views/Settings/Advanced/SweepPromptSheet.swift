@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import SwiftUI
 
 struct SweepPromptSheetItem: SheetItem {
@@ -38,3 +39,4 @@ struct SweepPromptSheet: View {
         .environmentObject(NavigationViewModel())
         .environmentObject(SheetViewModel())
 }
+#endif

@@ -157,7 +157,8 @@ class TransferService {
                     // This prevents a balance discrepancy where the transfer is removed but the
                     // sweep balance hasn't appeared in the on-chain wallet yet.
                     if transfer.type == .forceClose {
-                        let hasOnchainActivity = await coreService.activity.hasOnchainActivityForChannel(channelId: channelId)
+                        // TODO: hasOnchainActivityForChannel not yet available in fork's ActivityService
+                        let hasOnchainActivity = false
                         if hasOnchainActivity {
                             try await markSettled(id: transfer.id)
                             Logger.debug("Force close sweep detected, settled transfer: \(transfer.id)", context: "TransferService")

@@ -53,8 +53,9 @@ class ActivityService {
                     txIds.formUnion(onchain.boostTxIds)
                 }
             }
+            let finalTxIds = txIds
             await MainActor.run {
-                self.cachedTxIdsInBoostTxIds = txIds
+                self.cachedTxIdsInBoostTxIds = finalTxIds
             }
         } catch {
             Logger.error("Failed to refresh boostTxIds cache: \(error)", context: "ActivityService")
@@ -75,9 +76,9 @@ class ActivityService {
         let outputs = details.outputs.map { output in
             BitkitCore.TxOutput(
                 scriptpubkey: output.scriptpubkey,
-                scriptpubkeyType: output.scriptpubkeyType,
+                scriptpubkeyType: output.scriptpubkeyType ?? "unknown",
                 scriptpubkeyAddress: output.scriptpubkeyAddress,
-                value: output.value,
+                value: UInt64(output.value),
                 n: output.n
             )
         }
@@ -154,42 +155,6 @@ class ActivityService {
         }
     }
 
-    func markAllUnseenActivitiesAsSeen() async {
-        let timestamp = UInt64(Date().timeIntervalSince1970)
-
-        do {
-            let activities = try await get()
-            var didMarkAny = false
-
-            for activity in activities {
-                let id: String
-                let isSeen: Bool
-
-                switch activity {
-                case let .onchain(onchain):
-                    id = onchain.id
-                    isSeen = onchain.seenAt != nil
-                case let .lightning(lightning):
-                    id = lightning.id
-                    isSeen = lightning.seenAt != nil
-                }
-
-                if !isSeen {
-                    try await ServiceQueue.background(.core) {
-                        try BitkitCore.markActivityAsSeen(activityId: id, seenAt: timestamp)
-                    }
-                    didMarkAny = true
-                }
-            }
-
-            if didMarkAny {
-                activitiesChangedSubject.send()
-            }
-        } catch {
-            Logger.error("Failed to mark all activities as seen: \(error)", context: "ActivityService")
-        }
-    }
-
     // MARK: - Transaction Status Checks
 
     func wasTransactionReplaced(txid: String) async -> Bool {
@@ -208,25 +173,12 @@ class ActivityService {
             return false
         }
 
-        // Don't show sheet for channel closure transactions (commitment tx)
+        // Don't show sheet for channel closure transactions
         if await findClosedChannelForTransaction(txid: txid, transactionDetails: nil) != nil {
-            Logger.info("Skipping received sheet for channel close transaction \(txid)", context: "CoreService.shouldShowReceivedSheet")
             return false
         }
 
         let onchainActivity = try? await getOnchainActivityByTxId(txid: txid)
-
-        // Don't show sheet for transfer transactions (channel open/close)
-        if let onchainActivity, onchainActivity.isTransfer {
-            Logger.info("Skipping received sheet for transfer transaction \(txid)", context: "CoreService.shouldShowReceivedSheet")
-            return false
-        }
-
-        // Don't show sheet for transactions with a channel ID (part of a channel lifecycle)
-        if let onchainActivity, onchainActivity.channelId != nil {
-            Logger.info("Skipping received sheet for channel-related transaction \(txid)", context: "CoreService.shouldShowReceivedSheet")
-            return false
-        }
 
         if let onchainActivity, onchainActivity.seenAt != nil {
             return false
@@ -281,7 +233,7 @@ class ActivityService {
         else {
             return false
         }
-        return activity.doesExist && !activity.isBoosted
+        return activity.doesExist
     }
 
     init(coreService: CoreService) {
@@ -290,6 +242,11 @@ class ActivityService {
 
     func removeAll() async throws {
         try await ServiceQueue.background(.core) {
+            // Only allow removing on regtest for now
+            guard Env.network == .regtest else {
+                throw AppError(message: "Regtest only", debugMessage: nil)
+            }
+
             // Get all activities and delete them one by one
             let activities = try getActivities(
                 filter: .all, txType: nil, tags: nil, search: nil, minDate: nil, maxDate: nil, limit: nil, sortDirection: nil
@@ -351,12 +308,7 @@ class ActivityService {
         guard case let .onchain(txid, _) = payment.kind else { return }
 
         let paymentTimestamp = payment.latestUpdateTimestamp
-
-        // Look for existing activity by id first, then by txid (for migrated activities)
-        var existingActivity = try getActivityById(activityId: payment.id)
-        if existingActivity == nil {
-            existingActivity = try BitkitCore.getActivityByTxId(txId: txid).map { .onchain($0) }
-        }
+        let existingActivity = try getActivityById(activityId: payment.id)
 
         // Skip if existing activity has newer timestamp to avoid overwriting local data
         if let existingActivity, case let .onchain(existing) = existingActivity {
@@ -367,16 +319,18 @@ class ActivityService {
         }
 
         // Determine confirmation status from payment's txStatus
-        var blockTimestamp: UInt64?
-        let isConfirmed: Bool
-        if case let .onchain(_, txStatus) = payment.kind,
-           case let .confirmed(_, _, bts) = txStatus
-        {
-            isConfirmed = true
-            blockTimestamp = bts
-        } else {
-            isConfirmed = false
-        }
+        let value = payment.amountSats ?? 0
+
+        // Determine confirmation status from payment's txStatus
+        // Ensure confirmTimestamp is at least equal to paymentTimestamp when confirmed
+        // This handles cases where payment.latestUpdateTimestamp is more recent than blockTimestamp
+        let (isConfirmed, confirmedTimestamp): (Bool, UInt64?) =
+            if case let .onchain(_, txStatus) = payment.kind,
+            case let .confirmed(_, _, blockTimestamp) = txStatus {
+                (true, max(blockTimestamp, paymentTimestamp))
+            } else {
+                (false, nil)
+            }
 
         // Extract existing activity data
         let existingOnchain: OnchainActivity? = {
@@ -395,13 +349,6 @@ class ActivityService {
         let preservedAddress = existingOnchain?.address ?? "Loading..."
         let doesExist = existingOnchain?.doesExist ?? true
         let seenAt = existingOnchain?.seenAt
-
-        let ldkValue = payment.amountSats ?? 0
-        let value: UInt64 = if let existingValue = existingOnchain?.value, existingValue > ldkValue {
-            existingValue
-        } else {
-            ldkValue
-        }
 
         // Check if this transaction is a channel transfer
         if channelId == nil || !isTransfer {
@@ -435,15 +382,6 @@ class ActivityService {
         // Build and save the activity
         let finalDoesExist = isConfirmed ? true : doesExist
 
-        let activityTimestamp: UInt64 = {
-            let baseTimestamp = existingOnchain?.timestamp ?? paymentTimestamp
-
-            if let bts = blockTimestamp, bts < baseTimestamp {
-                return bts
-            }
-            return baseTimestamp
-        }()
-
         let onchain = OnchainActivity(
             id: payment.id,
             txType: payment.direction == .outbound ? .sent : .received,
@@ -453,12 +391,12 @@ class ActivityService {
             feeRate: feeRate,
             address: address,
             confirmed: isConfirmed,
-            timestamp: activityTimestamp,
+            timestamp: paymentTimestamp,
             isBoosted: isBoosted,
             boostTxIds: boostTxIds,
             isTransfer: isTransfer,
             doesExist: finalDoesExist,
-            confirmTimestamp: blockTimestamp,
+            confirmTimestamp: confirmedTimestamp,
             channelId: channelId,
             transferTxId: transferTxId,
             createdAt: UInt64(payment.creationTime.timeIntervalSince1970),
@@ -466,8 +404,8 @@ class ActivityService {
             seenAt: seenAt
         )
 
-        if let existingActivity, case let .onchain(existing) = existingActivity {
-            try await update(id: existing.id, activity: .onchain(onchain))
+        if existingActivity != nil {
+            try await update(id: payment.id, activity: .onchain(onchain))
         } else {
             try await upsert(.onchain(onchain))
         }
@@ -770,37 +708,9 @@ class ActivityService {
         }
     }
 
-    /// Check if a transaction spends a closed channel's funding UTXO or is a force close sweep
+    /// Check if a transaction spends a closed channel's funding UTXO
     private func findClosedChannelForTransaction(txid: String, transactionDetails: BitkitCore.TransactionDetails? = nil) async -> String? {
         do {
-            // First, check if this txid is a known sweep transaction using LDK's pending sweep balances
-            let pendingSweeps = await MainActor.run { LightningService.shared.balances?.pendingBalancesFromChannelClosures }
-            if let pendingSweeps {
-                for sweepBalance in pendingSweeps {
-                    switch sweepBalance {
-                    case let .broadcastAwaitingConfirmation(channelId, _, latestSpendingTxid, _):
-                        if latestSpendingTxid.description == txid, let channelId {
-                            Logger.info(
-                                "Matched sweep tx \(txid) to channel \(channelId) via pendingSweepBalance (awaiting confirmation)",
-                                context: "findClosedChannelForTransaction"
-                            )
-                            return channelId.description
-                        }
-                    case let .awaitingThresholdConfirmations(channelId, latestSpendingTxid, _, _, _):
-                        if latestSpendingTxid.description == txid, let channelId {
-                            Logger.info(
-                                "Matched sweep tx \(txid) to channel \(channelId) via pendingSweepBalance (threshold confirmations)",
-                                context: "findClosedChannelForTransaction"
-                            )
-                            return channelId.description
-                        }
-                    case .pendingBroadcast:
-                        // No txid yet, skip
-                        break
-                    }
-                }
-            }
-
             let closedChannels = try await getAllClosedChannels(sortDirection: .desc)
             guard !closedChannels.isEmpty else { return nil }
 
@@ -810,7 +720,7 @@ class ActivityService {
                 return nil
             }
 
-            // Check if any input spends a closed channel's funding UTXO (commitment transaction)
+            // Check if any input spends a closed channel's funding UTXO
             for input in details.inputs {
                 let inputTxid = input.txid
                 let inputVout = Int(input.vout)
@@ -833,8 +743,7 @@ class ActivityService {
 
     /// Check if a transaction is the funding transaction for an open channel
     private func findOpenChannelForTransaction(txid: String) async -> String? {
-        let channels = await MainActor.run { LightningService.shared.channels }
-        guard let channels, !channels.isEmpty else {
+        guard let channels = LightningService.shared.channels, !channels.isEmpty else {
             return nil
         }
 
@@ -1001,20 +910,13 @@ class ActivityService {
 
     func getOnchainActivityByTxId(txid: String) async throws -> OnchainActivity? {
         try await ServiceQueue.background(.core) {
-            try BitkitCore.getActivityByTxId(txId: txid)
-        }
-    }
-
-    /// Checks if an on-chain activity exists for a given channel (e.g., close tx has been synced)
-    func hasOnchainActivityForChannel(channelId: String) async -> Bool {
-        guard let activities = try? await get(filter: .onchain, limit: 50, sortDirection: .desc) else {
-            return false
-        }
-        return activities.contains { activity in
-            if case let .onchain(onchain) = activity {
-                return onchain.channelId == channelId
+            guard let activity = try BitkitCore.getActivityByTxId(txId: txid) else {
+                return nil
             }
-            return false
+            if case .onchain(let onchainActivity) = activity {
+                return onchainActivity
+            }
+            return nil
         }
     }
 
@@ -1811,8 +1713,8 @@ class UtilityService {
 
 // MARK: - Core Service requires shared init for both activity and blocktank services
 
-class CoreService {
-    static let shared = CoreService()
+public class CoreService {
+    public static let shared = CoreService()
     private let walletIndex: Int
 
     lazy var activity: ActivityService = .init(coreService: self)
@@ -1841,7 +1743,7 @@ class CoreService {
         } completion: { result in
             switch result {
             case .success():
-                Logger.info("Blocktank URL updated to \(Env.blocktankClientServer)", context: "CoreService")
+                Logger.info("Blocktank URL updated to \(Env.blocktankBaseUrl)", context: "CoreService")
             case let .failure(error):
                 Logger.error("Failed to update Blocktank URL: \(error)", context: "CoreService")
             }

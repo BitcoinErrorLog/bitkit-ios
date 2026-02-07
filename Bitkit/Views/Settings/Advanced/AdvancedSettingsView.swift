@@ -79,10 +79,12 @@ struct AdvancedSettingsView: View {
                         }
                         .accessibilityIdentifier("AddressViewer")
 
+                        #if SWEEP_ENABLED
                         NavigationLink(value: Route.sweep) {
                             SettingsListLabel(title: t("settings__adv__sweep_funds"))
                         }
                         .accessibilityIdentifier("SweepFunds")
+                        #endif
 
                         // SettingsListLabel(title: t("settings__adv__rescan"), rightIcon: nil)
 

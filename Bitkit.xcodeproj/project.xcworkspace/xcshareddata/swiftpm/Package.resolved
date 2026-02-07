@@ -1,15 +1,6 @@
 {
-  "originHash" : "17302aed9b1f94b6f928fd7e06b45ebec95883553cab0849836d3e292cab01d7",
+  "originHash" : "2f6c0bdf37ed15ca97f2c2ce31efe3acd45e07f67be520c2d1d84f9bc8c6bbdd",
   "pins" : [
-    {
-      "identity" : "bitkit-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/synonymdev/bitkit-core",
-      "state" : {
-        "branch" : "master",
-        "revision" : "76a63a2654f717accde5268905897b73e4f7d3c4"
-      }
-    },
     {
       "identity" : "codescanner",
       "kind" : "remoteSourceControl",
@@ -29,6 +20,15 @@
       }
     },
     {
+      "identity" : "ldk-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lightningdevkit/ldk-swift/",
+      "state" : {
+        "revision" : "b36f37fc216ae83eb8fdc625ae3c85ea4158a7d6",
+        "version" : "0.0.125"
+      }
+    },
+    {
       "identity" : "lottie-ios",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/airbnb/lottie-ios",
@@ -38,21 +38,21 @@
       }
     },
     {
+      "identity" : "sqlite.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stephencelis/SQLite.swift.git",
+      "state" : {
+        "revision" : "0c08856385fe24f7b76d8c51842d78a196e8e817",
+        "version" : "0.15.5"
+      }
+    },
+    {
       "identity" : "swift-secp256k1",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/21-DOT-DEV/swift-secp256k1",
       "state" : {
         "revision" : "9683e8e311c76d8114cd308b697dad2f9fc58fed",
         "version" : "0.17.0"
-      }
-    },
-    {
-      "identity" : "vss-rust-client-ffi",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/synonymdev/vss-rust-client-ffi",
-      "state" : {
-        "branch" : "master",
-        "revision" : "3d80852e6439c0b2034765e513e4620bb10b3f14"
       }
     },
     {

@@ -10,7 +10,9 @@ struct MainNavView: View {
     @EnvironmentObject private var wallet: WalletViewModel
     @Environment(\.scenePhase) var scenePhase
 
+    #if SWEEP_ENABLED
     @StateObject private var sweepViewModel = SweepViewModel()
+    #endif
 
     @State private var showClipboardAlert = false
     @State private var clipboardUri: String?
@@ -164,6 +166,7 @@ struct MainNavView: View {
         ) {
             config in ForceTransferSheet(config: config)
         }
+        #if SWEEP_ENABLED
         .sheet(
             item: $sheets.sweepPromptSheetItem,
             onDismiss: {
@@ -172,6 +175,7 @@ struct MainNavView: View {
         ) {
             config in SweepPromptSheet(config: config)
         }
+        #endif
         .accentColor(.white)
         .overlay {
             TabBar()
@@ -418,11 +422,16 @@ struct MainNavView: View {
             case .electrumSettings: ElectrumSettingsScreen()
             case .rgsSettings: RgsSettingsScreen()
             case .addressViewer: AddressViewer()
+            #if SWEEP_ENABLED
             case .sweep: SweepSettingsView().environmentObject(sweepViewModel)
             case .sweepConfirm: SweepConfirmView().environmentObject(sweepViewModel)
             case .sweepFeeRate: SweepFeeRateView().environmentObject(sweepViewModel)
             case .sweepFeeCustom: SweepFeeCustomView().environmentObject(sweepViewModel)
             case let .sweepSuccess(txid): SweepSuccessView(txid: txid).environmentObject(sweepViewModel)
+            #else
+            case .sweep, .sweepConfirm, .sweepFeeRate, .sweepFeeCustom: EmptyView()
+            case .sweepSuccess: EmptyView()
+            #endif
 
             // Dev settings
             case .blocktankRegtest: BlocktankRegtestView()

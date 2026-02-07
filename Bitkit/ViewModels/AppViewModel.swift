@@ -58,6 +58,10 @@ class AppViewModel: ObservableObject {
     // This prevents flashing error status during startup/background transitions
     @Published var appStatusInit: Bool = false
 
+    // Paykit pending navigation parameters
+    @Published var pendingPaykitRequestId: String?
+    @Published var pendingPaykitSubscriptionId: String?
+
     func showAllEmptyStates(_ show: Bool) {
         showHomeViewEmptyState = show
     }
@@ -905,7 +909,7 @@ extension AppViewModel {
             if MigrationsService.shared.needsPostMigrationSync {
                 Task { @MainActor in
                     try? await CoreService.shared.activity.syncLdkNodePayments(LightningService.shared.payments ?? [])
-                    await CoreService.shared.activity.markAllUnseenActivitiesAsSeen()
+                    // TODO: markAllUnseenActivitiesAsSeen not yet available in fork's ActivityService
                     await MigrationsService.shared.reapplyMetadataAfterSync()
 
                     if MigrationsService.shared.canCleanupAfterMigration {

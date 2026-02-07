@@ -24,3 +24,5 @@ buildServer.json
 # AIs
 .ai/
 .claude/*.local*
+# Large static libraries for simulator (rebuild from source)
+Bitkit/PaykitIntegration/Frameworks/PaykitMobile.xcframework/ios-arm64_x86_64-simulator/libpaykit_mobile.a

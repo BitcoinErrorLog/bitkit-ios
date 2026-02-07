@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import BitkitCore
 import SwiftUI
 
@@ -146,3 +147,4 @@ struct SweepFeeRateView: View {
         isLoading = false
     }
 }
+#endif

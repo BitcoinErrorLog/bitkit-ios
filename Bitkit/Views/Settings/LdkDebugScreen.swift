@@ -89,13 +89,8 @@ struct LdkDebugScreen: View {
     }
 
     func logNetworkGraphInfo() async {
-        do {
-            let lightningService = LightningService.shared
-            let info = try await lightningService.logNetworkGraphInfo()
-            app.toast(type: .info, title: "Network Graph Info", description: info)
-        } catch {
-            Logger.error("Failed to log network graph info: \(error)")
-        }
+        // logNetworkGraphInfo not yet available in fork's LightningService
+        app.toast(type: .warning, title: "Not Available", description: "Network graph logging not yet implemented")
     }
 
     func restartNode() async {

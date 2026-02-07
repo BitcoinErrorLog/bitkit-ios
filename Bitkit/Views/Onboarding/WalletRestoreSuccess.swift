@@ -36,7 +36,9 @@ struct WalletRestoreSuccess: View {
                 // Mark backup as verified since user just restored with their phrase
                 app.backupVerified = true
                 wallet.isRestoringWallet = false
+                #if SWEEP_ENABLED
                 SweepViewModel.checkAndPromptForSweepableFunds(sheets: sheets)
+                #endif
             }
             .accessibilityIdentifier("GetStartedButton")
         }

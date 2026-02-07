@@ -21,7 +21,7 @@ public final class BitkitBitcoinExecutor: BitcoinExecutorFfi {
     
     // MARK: - Initialization
     
-    public init(lightningService: LightningService = LightningService.shared) {
+    init(lightningService: LightningService = .shared) {
         self.lightningService = lightningService
     }
     

@@ -1,3 +1,4 @@
+#if SWEEP_ENABLED
 import SwiftUI
 
 struct SweepFeeCustomView: View {
@@ -109,3 +110,4 @@ struct SweepFeeCustomView: View {
         }
     }
 }
+#endif
