@@ -1,3 +1,4 @@
+#if canImport(PipUniFFI)
 //
 //  PipSessionStore.swift
 //  Bitkit iOS - PIP Session Persistence
@@ -260,3 +261,4 @@ struct SessionData {
     let receiverUrl: String
     let status: String
 }
+#endif

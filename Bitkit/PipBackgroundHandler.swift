@@ -1,3 +1,4 @@
+#if canImport(PipUniFFI)
 //
 //  PipBackgroundHandler.swift
 //  Bitkit iOS - PIP Background Webhook Processing
@@ -195,3 +196,4 @@ struct WebhookData {
 extension Notification.Name {
     static let pipWebhookProcessed = Notification.Name("pipWebhookProcessed")
 }
+#endif

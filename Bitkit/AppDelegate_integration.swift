@@ -1,3 +1,4 @@
+#if canImport(PipUniFFI)
 //
 //  AppDelegate Integration for PIP SDK
 //
@@ -108,3 +109,4 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         ]
     }
 }
+#endif

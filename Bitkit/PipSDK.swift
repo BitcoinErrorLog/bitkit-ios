@@ -1,3 +1,4 @@
+#if canImport(PipUniFFI)
 //
 //  PipSDK.swift
 //  Bitkit iOS Native Bridge for PIP SDK
@@ -377,3 +378,4 @@ extension Data {
         self = data
     }
 }
+#endif
