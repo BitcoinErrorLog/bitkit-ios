@@ -1,15 +1,8 @@
 import Lottie
 import SwiftUI
 
-struct ReceivedTxSheetDetails: Codable {
-    enum ReceivedTxType: Codable {
-        case onchain
-        case lightning
-    }
-
-    let type: ReceivedTxType
-    let sats: UInt64
-}
+// ReceivedTxSheetDetails is defined in Bitkit/Models/ReceivedTxSheetDetails.swift
+// to support persistence between app and notification extension via App Groups
 
 struct ReceivedTxSheetItem: SheetItem {
     let id: SheetID = .receivedTx

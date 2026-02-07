@@ -243,6 +243,20 @@ struct MainNavView: View {
             Task {
                 Logger.info("Received deeplink: \(url.absoluteString)")
 
+                // Handle Pubky-ring callbacks first (session, keypair, profile, follows)
+                if PubkyRingBridge.shared.handleCallback(url: url) {
+                    Logger.info("Handled Pubky-ring callback: \(url.host ?? "unknown")")
+                    return
+                }
+
+                // Handle bitkit://subscriptions deep link
+                if url.scheme == "bitkit" && url.host == "subscriptions" {
+                    Logger.info("Navigating to subscriptions via deep link", context: "MainNavView")
+                    navigation.navigate(.paykitSubscriptions)
+                    return
+                }
+
+                // Handle other deep links (Bitcoin, Lightning, etc.)
                 do {
                     try await app.handleScannedData(url.absoluteString)
                     PaymentNavigationHelper.openPaymentSheet(
@@ -287,19 +301,17 @@ struct MainNavView: View {
             case .activity:
                 AllActivityView()
             case .contacts:
-                // if app.hasSeenContactsIntro {
-                //     ContactsView()
-                // } else {
-                //     ContactsIntroView()
-                // }
-                ComingSoonScreen()
+                if app.hasSeenContactsIntro {
+                    PaykitContactsView()
+                } else {
+                    ContactsIntroView()
+                }
             case .profile:
-                // if app.hasSeenProfileIntro {
-                //     ProfileView()
-                // } else {
-                //     ProfileIntroView()
-                // }
-                ComingSoonScreen()
+                if app.hasSeenProfileIntro {
+                    ProfileEditView()
+                } else {
+                    ProfileIntroView()
+                }
             case .settings:
                 MainSettings()
             case .shop:
@@ -346,10 +358,10 @@ struct MainNavView: View {
             case .scanner: ScannerScreen()
 
             // Profile & Contacts
-            case .contacts: ComingSoonScreen()
-            case .contactsIntro: ComingSoonScreen()
-            case .profile: ComingSoonScreen()
-            case .profileIntro: ComingSoonScreen()
+            case .contacts: PaykitContactsView()
+            case .contactsIntro: ContactsIntroView()
+            case .profile: ProfileView()
+            case .profileIntro: ProfileIntroView()
 
             // Shop
             case .shopIntro: ShopIntro()
@@ -417,6 +429,22 @@ struct MainNavView: View {
             case .ldkDebug: LdkDebugScreen()
             case .orders: ChannelOrders()
             case .logs: LogView()
+
+            // Paykit routes
+            case .paykitDashboard: PaykitDashboardView()
+            case .paykitProfileEdit: ProfileEditView()
+            case .paykitContacts: PaykitContactsView()
+            case let .paykitContactDetail(contactId): ContactDetailView(contactId: contactId, viewModel: ContactsViewModel())
+            case .paykitContactDiscovery: ContactDiscoveryView()
+            case .paykitReceipts: PaykitReceiptsView()
+            case let .paykitReceiptDetail(receiptId): ReceiptDetailLookupView(receiptId: receiptId)
+            case .paykitSubscriptions: PaykitSubscriptionsView()
+            case .paykitAutoPay: PaykitAutoPayView()
+            case .paykitPaymentRequests: PaykitPaymentRequestsView()
+            case .paykitNoisePayment: NoisePaymentView()
+            case .paykitPrivateEndpoints: PrivateEndpointsView()
+            case .paykitRotationSettings: RotationSettingsView()
+            case .paykitSessionManagement: SessionManagementView()
             }
         }
     }
