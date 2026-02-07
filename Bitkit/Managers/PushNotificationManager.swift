@@ -90,70 +90,6 @@ final class PushNotificationManager: ObservableObject {
 
     func handleNotification(_ userInfo: [AnyHashable: Any]) {
         Logger.debug("📩 Notification received: \(userInfo)")
-        
-        // Check for Paykit noise connection wake
-        if let type = userInfo["type"] as? String, type == "noise_connect" {
-            Task {
-                await NoiseServerService.shared.handlePushNotification(userInfo)
-            }
-            return
-        }
-        
-        // Check for notification type
-        if let type = userInfo["type"] as? String {
-            switch type {
-            // Lightning incoming payment notifications - prioritize node startup
-            case "incomingHtlc", "cjitPaymentArrived":
-                Logger.info("📩 Incoming payment notification tapped: \(type)", context: "PushNotificationManager")
-                let paymentHash = userInfo["paymentHash"] as? String
-                NotificationCenter.default.post(
-                    name: .incomingPaymentNotification,
-                    object: nil,
-                    userInfo: ["paymentHash": paymentHash ?? "", "type": type]
-                )
-                
-            case "orderPaymentConfirmed":
-                Logger.info("📩 Channel ready notification tapped", context: "PushNotificationManager")
-                let orderId = userInfo["orderId"] as? String
-                NotificationCenter.default.post(
-                    name: .incomingPaymentNotification,
-                    object: nil,
-                    userInfo: ["orderId": orderId ?? "", "type": type]
-                )
-                
-            // Paykit notification types
-            case "paykit_noise_request", "paykit_payment_request":
-                if let requestId = userInfo["requestId"] as? String {
-                    Logger.info("📩 Payment request notification tapped: \(requestId)", context: "PushNotificationManager")
-                    NotificationCenter.default.post(
-                        name: .paykitRequestPayment,
-                        object: nil,
-                        userInfo: ["requestId": requestId]
-                    )
-                }
-                
-            case "paykit_subscription_proposal":
-                if let subscriptionId = userInfo["subscriptionId"] as? String {
-                    Logger.info("📩 Subscription proposal notification tapped: \(subscriptionId)", context: "PushNotificationManager")
-                    NotificationCenter.default.post(
-                        name: .paykitSubscriptionProposal,
-                        object: nil,
-                        userInfo: ["subscriptionId": subscriptionId]
-                    )
-                }
-                
-            case "paykit_payment_failed":
-                Logger.info("📩 Payment failed notification tapped", context: "PushNotificationManager")
-                NotificationCenter.default.post(
-                    name: .paykitPaymentFailed,
-                    object: nil,
-                    userInfo: userInfo as? [String: Any] ?? [:]
-                )
-                
-            default:
-                break
-            }
-        }
     }
 
     func sendTestNotification() async throws {
@@ -189,7 +125,8 @@ final class PushNotificationManager: ObservableObject {
 
         while Date() < timeoutDate {
             // Check if node is running via the status
-            if let status = LightningService.shared.status, status.isRunning {
+            let status = await MainActor.run { LightningService.shared.status }
+            if let status, status.isRunning {
                 let waitTime = Date().timeIntervalSince(startTime)
                 Logger.debug("✅ Node is ready (waited \(String(format: "%.2f", waitTime))s)")
                 return

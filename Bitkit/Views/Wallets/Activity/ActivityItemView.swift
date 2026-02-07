@@ -129,14 +129,11 @@ struct ActivityItemView: View {
                 return true
             }
             if activity.isBoosted && !activity.boostTxIds.isEmpty {
-                let hasCPFP = activity.boostTxIds.contains { boostTxDoesExist[$0] == true }
-                if hasCPFP {
-                    return true
-                }
-
                 if activity.txType == .sent {
-                    let hasRBF = activity.boostTxIds.contains { boostTxDoesExist[$0] == false }
-                    return hasRBF
+                    return true
+                } else {
+                    let hasCPFP = activity.boostTxIds.contains { boostTxDoesExist[$0] == true }
+                    return hasCPFP
                 }
             }
 
@@ -194,6 +191,7 @@ struct ActivityItemView: View {
                         MoneyStack(sats: amount, prefix: amountPrefix, showSymbol: false)
                         Spacer()
                         ActivityIcon(activity: viewModel.activity, size: 48, isCpfpChild: isCpfpChild)
+                            .offset(y: 5) // Align arrow with bottom of money stack
                     }
                     .padding(.bottom, 16)
 
@@ -457,6 +455,7 @@ struct ActivityItemView: View {
                     title: t("wallet__activity_assign"), size: .small,
                     icon: Image("user-plus")
                         .foregroundColor(accentColor),
+                    isDisabled: true,
                     shouldExpand: true
                 ) {
                     // TODO: add assign contact action

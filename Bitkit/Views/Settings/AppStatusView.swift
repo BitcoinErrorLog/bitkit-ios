@@ -6,6 +6,8 @@ struct AppStatusView: View {
     @EnvironmentObject private var wallet: WalletViewModel
     @EnvironmentObject private var app: AppViewModel
 
+    @State private var backupTimestamp: UInt64?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             NavigationBar(title: t("settings__status__title"))
@@ -27,13 +29,15 @@ struct AppStatusView: View {
         .navigationBarHidden(true)
         .padding(.horizontal, 16)
         .bottomSafeAreaPadding()
-        .onAppear {
-            wallet.syncState()
+        .task {
+            await wallet.syncStateAsync()
+            backupTimestamp = await BackupService.shared.getLatestBackupTime()
         }
     }
 
     private func refreshAppStatus() async {
-        wallet.syncState()
+        await wallet.syncStateAsync()
+        backupTimestamp = await BackupService.shared.getLatestBackupTime()
 
         if wallet.nodeLifecycleState == .running {
             do {
@@ -133,11 +137,10 @@ struct AppStatusView: View {
     }
 
     private var backupStatusRow: some View {
-        let timestamp = BackupService.shared.getLatestBackupTime()
         let description: String
-        let status: AppHealthStatus
+        let status: HealthStatus
 
-        if let timestamp {
+        if let timestamp = backupTimestamp {
             let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
             let formatter = DateFormatter()
             formatter.dateStyle = .medium

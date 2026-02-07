@@ -47,23 +47,28 @@ class WalletViewModel: ObservableObject {
     private let rgsConfigService: RgsConfigService
     private let balanceManager: BalanceManager
     private let transferService: TransferService
+    private let sheetViewModel: SheetViewModel
 
     @Published var isRestoringWallet = false
     @Published var balanceInTransferToSavings: Int = 0
     @Published var balanceInTransferToSpending: Int = 0
+    @Published var forceCloseClaimableAtHeight: UInt32?
+    @Published var currentBlockHeight: UInt32 = 0
 
     init(
         lightningService: LightningService = .shared,
         coreService: CoreService = .shared,
         electrumConfigService: ElectrumConfigService = ElectrumConfigService(),
         rgsConfigService: RgsConfigService = RgsConfigService(),
-        transferService: TransferService
+        transferService: TransferService,
+        sheetViewModel: SheetViewModel
     ) {
         self.lightningService = lightningService
         self.coreService = coreService
         self.electrumConfigService = electrumConfigService
         self.rgsConfigService = rgsConfigService
         self.transferService = transferService
+        self.sheetViewModel = sheetViewModel
         balanceManager = BalanceManager(
             lightningService: lightningService,
             transferService: transferService,
@@ -77,7 +82,7 @@ class WalletViewModel: ObservableObject {
             lightningService: .shared,
             blocktankService: CoreService.shared.blocktank
         )
-        self.init(transferService: transferService)
+        self.init(transferService: transferService, sheetViewModel: SheetViewModel())
     }
 
     func setWalletExistsState() throws {
@@ -93,8 +98,17 @@ class WalletViewModel: ObservableObject {
     }
 
     func start(walletIndex: Int = 0) async throws {
+        // Guard against concurrent starts - only allow start from stopped, initializing, or error states
+        switch nodeLifecycleState {
+        case .stopped, .initializing, .errorStarting:
+            break // Allowed to proceed
+        case .starting, .running, .stopping:
+            Logger.debug("Node already starting or running, skipping start")
+            return
+        }
+
         if nodeLifecycleState != .initializing {
-            // Initilaizing means it's a wallet restore or create so we need to show the loading view
+            // Initializing means it's a wallet restore or create so we need to show the loading view
             nodeLifecycleState = .starting
         }
 
@@ -102,10 +116,21 @@ class WalletViewModel: ObservableObject {
         do {
             let electrumServerUrl = electrumConfigService.getCurrentServer().fullUrl
             let rgsServerUrl = rgsConfigService.getCurrentServerUrl()
+
+            var channelMigration: ChannelDataMigration?
+            if let migration = MigrationsService.shared.pendingChannelMigration {
+                channelMigration = ChannelDataMigration(
+                    channelManager: [UInt8](migration.channelManager),
+                    channelMonitors: migration.channelMonitors.map { [UInt8]($0) }
+                )
+                MigrationsService.shared.pendingChannelMigration = nil
+            }
+
             try await lightningService.setup(
                 walletIndex: walletIndex,
                 electrumServerUrl: electrumServerUrl,
-                rgsServerUrl: rgsServerUrl.isEmpty ? nil : rgsServerUrl
+                rgsServerUrl: rgsServerUrl.isEmpty ? nil : rgsServerUrl,
+                channelMigration: channelMigration
             )
             try await lightningService.start(onEvent: { event in
                 Task { @MainActor in
@@ -116,39 +141,51 @@ class WalletViewModel: ObservableObject {
 
                     // Handle specific events for targeted UI updates
                     switch event {
-                    case .paymentReceived, .channelReady, .channelClosed:
-                        self.syncChannelsAndPeers()
+                    case .paymentReceived, .channelReady:
                         self.bolt11 = ""
                         Task {
+                            await self.refreshAndSyncState()
                             try? await self.refreshBip21()
                         }
 
-                    // MARK: New Onchain Transaction Events
+                    case let .channelClosed(channelId, _, _, reason):
+                        self.bolt11 = ""
+                        Task {
+                            await self.refreshAndSyncState()
+                            await self.handleChannelClosed(channelId: channelId, reason: reason)
+                            try? await self.refreshBip21()
+                        }
+
+                    // MARK: Onchain Transaction Events
 
                     case .onchainTransactionReceived, .onchainTransactionConfirmed, .onchainTransactionReplaced, .onchainTransactionReorged,
                          .onchainTransactionEvicted:
                         Task {
-                            await self.updateBalanceState()
+                            await self.refreshAndSyncState()
                         }
 
                     // MARK: Sync Events
 
-                    case let .syncProgress(syncType, progressPercent, currentBlockHeight, targetBlockHeight):
+                    case let .syncProgress(syncType, progressPercent, syncCurrentBlockHeight, targetBlockHeight):
                         self.isSyncingWallet = true
+                        if syncCurrentBlockHeight > self.currentBlockHeight {
+                            self.currentBlockHeight = syncCurrentBlockHeight
+                        }
                         Logger.debug("Sync progress: \(syncType) \(progressPercent)%")
+
                     case let .syncCompleted(syncType, syncedBlockHeight):
                         self.isSyncingWallet = false
+                        self.currentBlockHeight = syncedBlockHeight
                         Logger.info("Sync completed: \(syncType) at height \(syncedBlockHeight)")
-                        self.syncState()
                         Task {
-                            await self.updateBalanceState()
+                            await self.refreshAndSyncState()
                         }
 
                     // MARK: Balance Events
 
-                    case let .balanceChanged(oldSpendableOnchain, newSpendableOnchain, oldTotalOnchain, newTotalOnchain, oldLightning, newLightning):
+                    case .balanceChanged:
                         Task {
-                            await self.updateBalanceState()
+                            await self.refreshAndSyncState()
                         }
                     default:
                         break
@@ -180,9 +217,9 @@ class WalletViewModel: ObservableObject {
         }
     }
 
-    func stopLightningNode() async throws {
+    func stopLightningNode(clearEventCallback: Bool = false) async throws {
         nodeLifecycleState = .stopping
-        try await lightningService.stop()
+        try await lightningService.stop(clearEventCallback: clearEventCallback)
         nodeLifecycleState = .stopped
         syncState()
     }
@@ -227,6 +264,10 @@ class WalletViewModel: ObservableObject {
             while isSyncingWallet {
                 try await Task.sleep(nanoseconds: 500_000_000)
             }
+            return
+        }
+
+        if MigrationsService.shared.isShowingMigrationLoading {
             return
         }
 
@@ -471,10 +512,25 @@ class WalletViewModel: ObservableObject {
 
     /// Sync all state (node status, channels, peers, balances)
     /// Use this for initial load or after sync operations
+    /// Note: Uses cached values from LightningService - call syncStateAsync() for fresh data
     func syncState() {
         syncNodeStatus()
         syncChannelsAndPeers()
         syncBalances()
+    }
+
+    /// Async version that refreshes the cache before syncing state
+    /// Use this when you need guaranteed fresh data from the LDK node
+    func syncStateAsync() async {
+        await lightningService.refreshCache()
+        syncState()
+    }
+
+    /// Refreshes cache and syncs all UI state including balance
+    /// Use this for any event that may have changed balances or channel state
+    private func refreshAndSyncState() async {
+        await updateBalanceState()
+        syncState()
     }
 
     /// Sync node status, ID and lifecycle state
@@ -515,9 +571,12 @@ class WalletViewModel: ObservableObject {
         }
     }
 
-    /// Updates the balance state including pending transfers
     func updateBalanceState() async {
+        // Ensure we have fresh data from LDK before computing balance
+        await lightningService.refreshCache()
+
         do {
+            try? await transferService.syncTransferStates()
             let state = try await balanceManager.deriveBalanceState()
             balanceInTransferToSavings = Int(state.balanceInTransferToSavings)
             balanceInTransferToSpending = Int(state.balanceInTransferToSpending)
@@ -527,6 +586,13 @@ class WalletViewModel: ObservableObject {
             totalLightningSats = Int(state.totalLightningSats)
             totalBalanceSats = Int(state.totalBalanceSats)
             maxSendLightningSats = Int(state.maxSendLightningSats)
+
+            // Get force close timelock from active transfers
+            let activeTransfers = try? transferService.getActiveTransfers()
+            let forceCloseTransfer = activeTransfers?.first {
+                $0.type == .forceClose && !$0.isSettled
+            }
+            forceCloseClaimableAtHeight = forceCloseTransfer?.claimableAtHeight
         } catch {
             Logger.error("Failed to update balance state: \(error)", context: "WalletViewModel")
         }
@@ -544,25 +610,9 @@ class WalletViewModel: ObservableObject {
         return capacity
     }
 
-    /// Total inbound Lightning capacity excluding LSP (Blocktank) channels
-    /// Used when geoblocked to show only non-Blocktank receiving capacity
-    var totalNonLspInboundLightningSats: UInt64? {
-        let nonLspChannels = lightningService.getNonLspChannels()
-        guard !nonLspChannels.isEmpty else {
-            return nil
-        }
-
-        var capacity: UInt64 = 0
-        for channel in nonLspChannels {
-            capacity += channel.inboundCapacityMsat / 1000
-        }
-        return capacity
-    }
-
-    /// Check if there are non-LSP (non-Blocktank) channels available
-    /// Used for geoblocking to determine if Lightning operations can proceed
-    func hasNonLspChannels() -> Bool {
-        return !lightningService.getNonLspChannels().isEmpty
+    /// Returns true if there's at least one usable channel (ready AND peer connected)
+    var hasUsableChannels: Bool {
+        return channels?.contains(where: \.isUsable) ?? false
     }
 
     func refreshBip21(forceRefreshBolt11: Bool = false) async throws {
@@ -590,14 +640,6 @@ class WalletViewModel: ObservableObject {
         var newBip21 = "bitcoin:\(onchainAddress)"
 
         let amountSats = invoiceAmountSats > 0 ? invoiceAmountSats : nil
-
-        // When geoblocked, only create Lightning invoice if we have non-LSP channels
-        let isGeoblocked = GeoService.shared.isGeoBlocked
-        let hasUsableChannels: Bool = if isGeoblocked {
-            hasNonLspChannels()
-        } else {
-            channels?.count ?? 0 > 0
-        }
 
         if hasUsableChannels {
             if forceRefreshBolt11 || bolt11.isEmpty {
@@ -699,12 +741,88 @@ class WalletViewModel: ObservableObject {
         isMaxAmountSend = false
     }
 
+    private func handleChannelClosed(channelId: LDKNode.ChannelId, reason: LDKNode.ClosureReason?) async {
+        let channelIdString = channelId.description
+        let reasonString = reason.map { String(describing: $0) } ?? ""
+
+        Logger.info("Handling channel close: channelId=\(channelIdString) reason=\(reasonString)", context: "WalletViewModel")
+
+        guard let reason else { return }
+
+        let (isCounterpartyClose, isForceClose) = classifyClosureReason(reason)
+
+        if isCounterpartyClose {
+            Logger.info("Detected counterparty-initiated channel close (force=\(isForceClose))", context: "WalletViewModel")
+
+            let transferType: TransferType = isForceClose ? .forceClose : .coopClose
+
+            // Find the lightning balance for this channel
+            // First try to get from lightningBalances (for already-claimed force closes)
+            let allBalances = lightningService.balances?.lightningBalances ?? []
+            let channelLightningBalance = allBalances.first { $0.channelIdString == channelIdString }
+            var channelBalance = channelLightningBalance?.amountSats ?? 0
+
+            // If no balance found in lightningBalances, get from closed channel record
+            if channelBalance == 0 {
+                if let closedChannels = try? await coreService.activity.closedChannels(sortDirection: .desc),
+                   let closedChannel = closedChannels.first(where: { $0.channelId == channelIdString })
+                {
+                    channelBalance = closedChannel.channelValueSats
+                }
+            }
+
+            // For force closes, get the timelock height
+            let claimableAtHeight: UInt32? = isForceClose ? channelLightningBalance?.claimableAtHeight : nil
+
+            if channelBalance > 0 {
+                do {
+                    let transferId = try await transferService.createTransfer(
+                        type: transferType,
+                        amountSats: channelBalance,
+                        channelId: channelIdString,
+                        claimableAtHeight: claimableAtHeight
+                    )
+                    Logger.info(
+                        "Created transfer for LSP-initiated close: \(transferId) claimableAtHeight=\(claimableAtHeight ?? 0)",
+                        context: "WalletViewModel"
+                    )
+                } catch {
+                    Logger.error("Failed to create transfer for LSP close: \(error)", context: "WalletViewModel")
+                }
+            }
+
+            sheetViewModel.showSheet(.connectionClosed)
+        }
+    }
+
+    private func classifyClosureReason(_ reason: LDKNode.ClosureReason) -> (isCounterpartyClose: Bool, isForceClose: Bool) {
+        let reasonString = String(describing: reason).lowercased()
+
+        if reasonString.contains("commitmenttxconfirmed") {
+            return (true, true)
+        }
+        if reasonString.contains("counterpartyforceclosed") {
+            return (true, true)
+        }
+        if reasonString.contains("counterpartyinitiatedcooperativeclosure") {
+            return (true, false)
+        }
+        if reasonString.contains("counterpartycopclosedunfundedchannel") {
+            return (true, false)
+        }
+        if reasonString.contains("counterparty") {
+            return (true, reasonString.contains("force"))
+        }
+
+        return (false, false)
+    }
+
     func wipe() async throws {
         Logger.warn("Starting wallet wipe", context: "WalletViewModel")
         _ = await waitForNodeToRun(timeoutSeconds: 5.0)
 
         if nodeLifecycleState == .starting || nodeLifecycleState == .running {
-            try await stopLightningNode()
+            try await stopLightningNode(clearEventCallback: true)
         }
 
         try await lightningService.wipeStorage(walletIndex: 0)

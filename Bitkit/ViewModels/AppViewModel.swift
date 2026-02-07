@@ -1,12 +1,15 @@
 import BitkitCore
+import Combine
 import LDKNode
 import SwiftUI
 
-/// Paykit URI route types
-enum PaykitUriRoute {
-    case paykit(pubkey: String, method: String?, amount: Int64?)
-    case paymentRequest(id: String)
-    case subscription(id: String)
+enum ManualEntryValidationResult: Equatable {
+    case valid
+    case empty
+    case invalid
+    case insufficientSavings
+    case insufficientSpending
+    case expiredLightningOnly
 }
 
 @MainActor
@@ -15,6 +18,9 @@ class AppViewModel: ObservableObject {
     @Published var scannedLightningInvoice: LightningInvoice?
     @Published var scannedOnchainInvoice: OnChainInvoice?
     @Published var selectedWalletToPayFrom: WalletType = .onchain
+    @Published var manualEntryInput: String = ""
+    @Published var isManualEntryInputValid: Bool = false
+    @Published var manualEntryValidationResult: ManualEntryValidationResult = .empty
 
     // LNURL
     @Published var lnurlPayData: LnurlPayData?
@@ -48,29 +54,33 @@ class AppViewModel: ObservableObject {
     // Drawer menu
     @Published var showDrawer = false
 
-    // App status initialization
-    @Published var appStatusInitialized: Bool = false
-    
-    // Paykit pending navigation parameters
-    @Published var pendingPaykitRequestId: String?
-    @Published var pendingPaykitSubscriptionId: String?
-    @Published var pendingPaykitPayment: PaykitPendingPayment?
+    // App status init - shows "ready" until node is actually running
+    // This prevents flashing error status during startup/background transitions
+    @Published var appStatusInit: Bool = false
 
     func showAllEmptyStates(_ show: Bool) {
         showHomeViewEmptyState = show
     }
 
-    private func startAppStatusInitializationTimer() {
-        // Give the app some time to initialize before showing the real status
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-            self.appStatusInitialized = true
-        }
+    /// Called when node reaches running state
+    func markAppStatusInit() {
+        appStatusInit = true
+    }
+
+    /// Called when app goes to background to reset the status facade
+    func resetAppStatusInit() {
+        appStatusInit = false
     }
 
     private let lightningService: LightningService
     private let coreService: CoreService
     private let sheetViewModel: SheetViewModel
     private let navigationViewModel: NavigationViewModel
+    private var manualEntryValidationSequence: UInt64 = 0
+
+    // Combine infrastructure for debounced validation
+    private var manualEntryValidationCancellable: AnyCancellable?
+    private let manualEntryValidationSubject = PassthroughSubject<(String, Int, Int, UInt64), Never>()
 
     init(
         lightningService: LightningService = .shared,
@@ -83,13 +93,109 @@ class AppViewModel: ObservableObject {
         self.sheetViewModel = sheetViewModel
         self.navigationViewModel = navigationViewModel
 
-        // Start app status initialization timer
-        startAppStatusInitializationTimer()
+        setupManualEntryValidationDebounce()
 
         Task {
             await checkGeoStatus()
             // Check for app updates on startup
             await AppUpdateService.shared.checkForAppUpdate()
+        }
+    }
+
+    private func setupManualEntryValidationDebounce() {
+        manualEntryValidationCancellable = manualEntryValidationSubject
+            .debounce(for: .milliseconds(1000), scheduler: DispatchQueue.main)
+            .sink { [weak self] rawValue, savingsBalanceSats, spendingBalanceSats, queuedSequence in
+                guard let self else { return }
+                // Skip if sequence changed (reset was called or new validation queued)
+                guard queuedSequence == manualEntryValidationSequence else { return }
+                Task {
+                    await self.performValidation(rawValue, savingsBalanceSats: savingsBalanceSats, spendingBalanceSats: spendingBalanceSats)
+                }
+            }
+    }
+
+    /// Shows insufficient spending balance toast with amount-specific or generic description
+    private func showInsufficientSpendingToast(invoiceAmount: UInt64, spendingBalance: UInt64) {
+        let amountNeeded = invoiceAmount > spendingBalance ? invoiceAmount - spendingBalance : 0
+        let description = amountNeeded > 0
+            ? t(
+                "other__pay_insufficient_spending_amount_description",
+                variables: ["amount": CurrencyFormatter.formatSats(amountNeeded)]
+            )
+            : t("other__pay_insufficient_spending_description")
+
+        toast(
+            type: .error,
+            title: t("other__pay_insufficient_spending"),
+            description: description,
+            accessibilityIdentifier: "InsufficientSpendingToast"
+        )
+    }
+
+    /// Validates onchain balance and shows toast if insufficient. Returns true if sufficient.
+    private func validateOnchainBalance(invoiceAmount: UInt64, onchainBalance: UInt64) -> Bool {
+        if invoiceAmount > 0 {
+            guard onchainBalance >= invoiceAmount else {
+                let amountNeeded = invoiceAmount - onchainBalance
+                toast(
+                    type: .error,
+                    title: t("other__pay_insufficient_savings"),
+                    description: t(
+                        "other__pay_insufficient_savings_amount_description",
+                        variables: ["amount": CurrencyFormatter.formatSats(amountNeeded)]
+                    ),
+                    accessibilityIdentifier: "InsufficientSavingsToast"
+                )
+                return false
+            }
+        } else {
+            // Zero-amount invoice: user must have some balance to proceed
+            guard onchainBalance > 0 else {
+                toast(
+                    type: .error,
+                    title: t("other__pay_insufficient_savings"),
+                    description: t("other__pay_insufficient_savings_description"),
+                    accessibilityIdentifier: "InsufficientSavingsToast"
+                )
+                return false
+            }
+        }
+        return true
+    }
+
+    private func showValidationErrorToast(for result: ManualEntryValidationResult) {
+        switch result {
+        case .invalid:
+            toast(
+                type: .error,
+                title: t("other__scan_err_decoding"),
+                description: t("other__scan__error__generic"),
+                accessibilityIdentifier: "InvalidAddressToast"
+            )
+        case .insufficientSavings:
+            toast(
+                type: .error,
+                title: t("other__pay_insufficient_savings"),
+                description: t("other__pay_insufficient_savings_description"),
+                accessibilityIdentifier: "InsufficientSavingsToast"
+            )
+        case .insufficientSpending:
+            toast(
+                type: .error,
+                title: t("other__pay_insufficient_spending"),
+                description: t("other__pay_insufficient_savings_description"),
+                accessibilityIdentifier: "InsufficientSpendingToast"
+            )
+        case .expiredLightningOnly:
+            toast(
+                type: .error,
+                title: t("other__scan_err_decoding"),
+                description: t("other__scan__error__expired"),
+                accessibilityIdentifier: "ExpiredLightningToast"
+            )
+        case .valid, .empty:
+            break
         }
     }
 
@@ -159,6 +265,9 @@ extension AppViewModel {
     }
 
     func toast(_ error: Error) {
+        if error is CancellationError {
+            return
+        }
         toast(type: .error, title: "Error", description: error.localizedDescription)
     }
 
@@ -173,10 +282,15 @@ extension AppViewModel {
     func handleScannedData(_ uri: String) async throws {
         // Reset send state before handling new data
         resetSendState()
-        
-        // Check for Paykit URIs first
-        if let paykitRoute = parsePaykitUri(uri) {
-            handlePaykitUri(paykitRoute)
+
+        // Workaround for duplicated BIP21 URIs (bitkit-core#63)
+        if Bip21Utils.isDuplicatedBip21(uri) {
+            toast(
+                type: .error,
+                title: t("other__scan_err_decoding"),
+                description: t("other__scan__error__generic"),
+                accessibilityIdentifier: "InvalidAddressToast"
+            )
             return
         }
 
@@ -185,34 +299,118 @@ extension AppViewModel {
         switch data {
         // BIP21 (Unified) invoice handling
         case let .onChain(invoice):
+            // Check network first - treat wrong network as decoding error
+            let addressValidation = try? validateBitcoinAddress(address: invoice.address)
+            let addressNetwork: LDKNode.Network? = addressValidation.map { NetworkValidationHelper.convertNetworkType($0.network) }
+            if NetworkValidationHelper.isNetworkMismatch(addressNetwork: addressNetwork, currentNetwork: Env.network) {
+                toast(
+                    type: .error,
+                    title: t("other__scan_err_decoding"),
+                    description: t("other__scan__error__generic"),
+                    accessibilityIdentifier: "InvalidAddressToast"
+                )
+                return
+            }
+
             if let lnInvoice = invoice.params?["lightning"] {
-                guard lightningService.status?.isRunning == true else {
-                    toast(type: .error, title: "Lightning not running", description: "Please try again later.")
+                // Lightning invoice param found, prefer lightning payment if invoice is valid
+                if case let .lightning(lightningInvoice) = try await decode(invoice: lnInvoice) {
+                    // Check lightning invoice network
+                    let lnNetwork = NetworkValidationHelper.convertNetworkType(lightningInvoice.networkType)
+                    let lnNetworkMatch = !NetworkValidationHelper.isNetworkMismatch(addressNetwork: lnNetwork, currentNetwork: Env.network)
+
+                    if lnNetworkMatch, !lightningInvoice.isExpired {
+                        let nodeIsRunning = lightningService.status?.isRunning == true
+
+                        if nodeIsRunning {
+                            // Node is running → we have fresh balances; validate immediately.
+                            // Prefer lightning; if insufficient or no channels/capacity, fall back to onchain.
+                            let canSendLightning = lightningService.canSend(amountSats: lightningInvoice.amountSatoshis)
+
+                            if canSendLightning {
+                                handleScannedLightningInvoice(lightningInvoice, bolt11: lnInvoice, onchainInvoice: invoice)
+                                return
+                            }
+
+                            // Lightning insufficient for any reason (no channels, no capacity, etc).
+                            // Fall back to onchain and validate onchain balance immediately.
+                            let onchainBalance = lightningService.balances?.spendableOnchainBalanceSats ?? 0
+                            guard validateOnchainBalance(invoiceAmount: invoice.amountSatoshis, onchainBalance: onchainBalance) else {
+                                return
+                            }
+
+                            // Onchain is sufficient → proceed with onchain flow, do not open lightning flow.
+                            handleScannedOnchainInvoice(invoice)
+                            return
+                        }
+
+                        // Node not running: proceed with lightning; validation/fallback will happen in SendSheet after sync.
+                        handleScannedLightningInvoice(lightningInvoice, bolt11: lnInvoice, onchainInvoice: invoice)
+                        return
+                    }
+
+                    // If Lightning is expired or wrong network, fall back to on-chain silently (no toast)
+                }
+            }
+
+            // Fallback to on-chain if address is available
+            guard !invoice.address.isEmpty else { return }
+
+            // If node is running, validate balance immediately
+            if lightningService.status?.isRunning == true {
+                let onchainBalance = lightningService.balances?.spendableOnchainBalanceSats ?? 0
+                guard validateOnchainBalance(invoiceAmount: invoice.amountSatoshis, onchainBalance: onchainBalance) else {
                     return
                 }
-                // Lightning invoice param found, prefer lightning payment if possible
-                if case let .lightning(lightningInvoice) = try await decode(invoice: lnInvoice) {
-                    if lightningService.canSend(amountSats: lightningInvoice.amountSatoshis) {
-                        handleScannedLightningInvoice(lightningInvoice, bolt11: lnInvoice, onchainInvoice: invoice)
+            }
+
+            handleScannedOnchainInvoice(invoice)
+        case let .lightning(invoice):
+            // Check network first - treat wrong network as decoding error
+            let invoiceNetwork = NetworkValidationHelper.convertNetworkType(invoice.networkType)
+            if NetworkValidationHelper.isNetworkMismatch(addressNetwork: invoiceNetwork, currentNetwork: Env.network) {
+                toast(
+                    type: .error,
+                    title: t("other__scan_err_decoding"),
+                    description: t("other__scan__error__generic"),
+                    accessibilityIdentifier: "InvalidAddressToast"
+                )
+                return
+            }
+
+            guard !invoice.isExpired else {
+                toast(
+                    type: .error,
+                    title: t("other__scan_err_decoding"),
+                    description: t("other__scan__error__expired"),
+                    accessibilityIdentifier: "ExpiredLightningToast"
+                )
+                return
+            }
+
+            // If node is running, we can check for channels and validate immediately
+            if lightningService.status?.isRunning == true {
+                // If user has no channels at all, they can never pay a pure lightning invoice.
+                // Show insufficient spending toast and do not navigate to the send flow.
+                let hasAnyChannels = (lightningService.channels?.isEmpty == false)
+                if !hasAnyChannels {
+                    let spendingBalance = lightningService.balances?.totalLightningBalanceSats ?? 0
+                    showInsufficientSpendingToast(invoiceAmount: invoice.amountSatoshis, spendingBalance: spendingBalance)
+                    return
+                }
+
+                // If channels are usable, validate capacity immediately
+                if let channels = lightningService.channels, channels.contains(where: \.isUsable) {
+                    guard lightningService.canSend(amountSats: invoice.amountSatoshis) else {
+                        let spendingBalance = lightningService.balances?.totalLightningBalanceSats ?? 0
+                        showInsufficientSpendingToast(invoiceAmount: invoice.amountSatoshis, spendingBalance: spendingBalance)
                         return
                     }
                 }
             }
 
-            // No LN invoice found, proceed with onchain payment
-            handleScannedOnchainInvoice(invoice)
-        case let .lightning(invoice):
-            guard lightningService.status?.isRunning == true else {
-                toast(type: .error, title: "Lightning not running", description: "Please try again later.")
-                return
-            }
-
-            Logger.debug("Lightning: \(invoice)")
-            if lightningService.canSend(amountSats: invoice.amountSatoshis) {
-                handleScannedLightningInvoice(invoice, bolt11: uri)
-            } else {
-                toast(type: .error, title: "Insufficient Funds", description: "You do not have enough funds to send this payment.")
-            }
+            // Proceed with lightning payment (validation will happen in SendSheet if node not ready)
+            handleScannedLightningInvoice(invoice, bolt11: uri)
         case let .lnurlPay(data: lnurlPayData):
             Logger.debug("LNURL: \(lnurlPayData)")
             handleLnurlPayInvoice(lnurlPayData)
@@ -231,7 +429,17 @@ extension AppViewModel {
                 return
             }
 
-            // TODO: add network check
+            // Check network - treat wrong network as decoding error
+            let nodeNetwork = NetworkValidationHelper.convertNetworkType(network)
+            if NetworkValidationHelper.isNetworkMismatch(addressNetwork: nodeNetwork, currentNetwork: Env.network) {
+                toast(
+                    type: .error,
+                    title: t("other__scan_err_decoding"),
+                    description: t("other__scan__error__generic"),
+                    accessibilityIdentifier: "InvalidAddressToast"
+                )
+                return
+            }
 
             handleNodeUri(url, network)
         case let .gift(code, amount):
@@ -259,72 +467,6 @@ extension AppViewModel {
         scannedOnchainInvoice = invoice
         scannedLightningInvoice = nil
     }
-    
-    // MARK: - Paykit URI Handling
-    
-    /// Parse Paykit URI schemes: paykit:, pip:, sub:
-    private func parsePaykitUri(_ uri: String) -> PaykitUriRoute? {
-        let lowercased = uri.lowercased()
-        
-        // paykit:{pubkey}?method=lightning&amount=1000
-        if lowercased.hasPrefix("paykit:") {
-            let content = String(uri.dropFirst(7))
-            let components = content.components(separatedBy: "?")
-            let pubkey = components[0]
-            var params: [String: String] = [:]
-            
-            if components.count > 1 {
-                let queryItems = components[1].components(separatedBy: "&")
-                for item in queryItems {
-                    let pair = item.components(separatedBy: "=")
-                    if pair.count == 2 {
-                        params[pair[0]] = pair[1]
-                    }
-                }
-            }
-            
-            return .paykit(pubkey: pubkey, method: params["method"], amount: Int64(params["amount"] ?? ""))
-        }
-        
-        // pip:{request_id} - Payment request
-        if lowercased.hasPrefix("pip:") {
-            let requestId = String(uri.dropFirst(4))
-            return .paymentRequest(id: requestId)
-        }
-        
-        // sub:{subscription_id} - Subscription
-        if lowercased.hasPrefix("sub:") {
-            let subscriptionId = String(uri.dropFirst(4))
-            return .subscription(id: subscriptionId)
-        }
-        
-        return nil
-    }
-    
-    /// Handle Paykit URI routes
-    private func handlePaykitUri(_ route: PaykitUriRoute) {
-        switch route {
-        case let .paykit(pubkey, method, amount):
-            Logger.info("Paykit URI: pubkey=\(pubkey), method=\(method ?? "any"), amount=\(amount?.description ?? "none")", context: "AppViewModel")
-            // Set pending payment data for PaykitContactsView to consume
-            pendingPaykitPayment = PaykitPendingPayment(
-                recipientPubkey: pubkey,
-                preferredMethod: method,
-                amountSats: amount.map { UInt64($0) }
-            )
-            navigationViewModel.navigate(.paykitContacts)
-            
-        case let .paymentRequest(id):
-            Logger.info("Payment Request URI: id=\(id)", context: "AppViewModel")
-            pendingPaykitRequestId = id
-            navigationViewModel.navigate(.paykitPaymentRequests)
-            
-        case let .subscription(id):
-            Logger.info("Subscription URI: id=\(id)", context: "AppViewModel")
-            pendingPaykitSubscriptionId = id
-            navigationViewModel.navigate(.paykitSubscriptions)
-        }
-    }
 
     private func handleLnurlPayInvoice(_ data: LnurlPayData) {
         // Check if lightning service is running
@@ -333,9 +475,13 @@ extension AppViewModel {
             return
         }
 
+        var normalizedData = data
+        normalizedData.minSendable = max(1, LightningAmountConversion.satsCeil(fromMsats: normalizedData.minSendable))
+        normalizedData.maxSendable = max(normalizedData.minSendable, LightningAmountConversion.satsFloor(fromMsats: normalizedData.maxSendable))
+
         // Check if user has enough lightning balance to pay the minimum amount
         let lightningBalance = lightningService.balances?.totalLightningBalanceSats ?? 0
-        if lightningBalance < data.minSendable {
+        if lightningBalance < normalizedData.minSendable {
             toast(
                 type: .warning,
                 title: t("other__lnurl_pay_error"),
@@ -345,7 +491,7 @@ extension AppViewModel {
         }
 
         selectedWalletToPayFrom = .lightning
-        lnurlPayData = data
+        lnurlPayData = normalizedData
     }
 
     private func handleLnurlWithdraw(_ data: LnurlWithdrawData) {
@@ -355,8 +501,11 @@ extension AppViewModel {
             return
         }
 
+        let minMsats = data.minWithdrawable ?? Env.msatsPerSat
+        let maxMsats = data.maxWithdrawable
+
         // Check if minWithdrawable > maxWithdrawable
-        if (data.minWithdrawable ?? 1000) > data.maxWithdrawable {
+        if minMsats > maxMsats {
             toast(
                 type: .warning,
                 title: t("other__lnurl_withdr_error"),
@@ -365,9 +514,15 @@ extension AppViewModel {
             return
         }
 
+        var normalizedData = data
+        let minSats = max(1, LightningAmountConversion.satsCeil(fromMsats: minMsats))
+        let maxSats = max(minSats, LightningAmountConversion.satsFloor(fromMsats: maxMsats))
+        normalizedData.minWithdrawable = minSats
+        normalizedData.maxWithdrawable = maxSats
+
         // Check if we have enough receiving capacity
         let lightningBalance = lightningService.balances?.totalLightningBalanceSats ?? 0
-        if lightningBalance < (data.minWithdrawable ?? 1000) / 1000 {
+        if lightningBalance < minSats {
             toast(
                 type: .warning,
                 title: t("other__lnurl_withdr_error"),
@@ -376,7 +531,7 @@ extension AppViewModel {
             return
         }
 
-        lnurlWithdrawData = data
+        lnurlWithdrawData = normalizedData
     }
 
     private func handleLnurlChannel(_ data: LnurlChannelData) {
@@ -411,6 +566,151 @@ extension AppViewModel {
         selectedWalletToPayFrom = .onchain // Reset to default
         lnurlPayData = nil
         lnurlWithdrawData = nil
+        resetManualEntryInput()
+    }
+}
+
+// MARK: Manual entry validation
+
+extension AppViewModel {
+    func normalizeManualEntry(_ value: String) -> String {
+        value.filter { !$0.isWhitespace }
+    }
+
+    func resetManualEntryInput() {
+        manualEntryValidationSequence &+= 1
+        manualEntryInput = ""
+        isManualEntryInputValid = false
+        manualEntryValidationResult = .empty
+    }
+
+    /// Queue validation with debounce
+    func validateManualEntryInput(_ rawValue: String, savingsBalanceSats: Int, spendingBalanceSats: Int) {
+        // Increment sequence first so any pending debounced requests become stale
+        manualEntryValidationSequence &+= 1
+        let currentSequence = manualEntryValidationSequence
+
+        let normalized = normalizeManualEntry(rawValue)
+
+        // Immediately update state for empty input (no debounce needed)
+        guard !normalized.isEmpty else {
+            manualEntryValidationResult = .empty
+            isManualEntryInputValid = false
+            return
+        }
+
+        // Queue the validation with debounce, including the sequence to detect stale requests
+        manualEntryValidationSubject.send((rawValue, savingsBalanceSats, spendingBalanceSats, currentSequence))
+    }
+
+    /// Perform the actual validation
+    private func performValidation(_ rawValue: String, savingsBalanceSats: Int, spendingBalanceSats: Int) async {
+        let currentSequence = manualEntryValidationSequence
+
+        let normalized = normalizeManualEntry(rawValue)
+
+        guard !normalized.isEmpty else {
+            manualEntryValidationResult = .empty
+            isManualEntryInputValid = false
+            return
+        }
+
+        // Workaround for duplicated BIP21 URIs (bitkit-core#63)
+        if Bip21Utils.isDuplicatedBip21(normalized) {
+            guard currentSequence == manualEntryValidationSequence else { return }
+            manualEntryValidationResult = .invalid
+            isManualEntryInputValid = false
+            showValidationErrorToast(for: .invalid)
+            return
+        }
+
+        // Try to decode the invoice
+        guard let decodedData = try? await decode(invoice: normalized) else {
+            guard currentSequence == manualEntryValidationSequence else { return }
+            manualEntryValidationResult = .invalid
+            isManualEntryInputValid = false
+            showValidationErrorToast(for: .invalid)
+            return
+        }
+
+        guard currentSequence == manualEntryValidationSequence else { return }
+
+        // Determine validation result based on invoice type and balance
+        var result: ManualEntryValidationResult = .valid
+
+        switch decodedData {
+        case let .lightning(invoice):
+            // Priority 0: Check network first - treat wrong network as invalid
+            let invoiceNetwork = NetworkValidationHelper.convertNetworkType(invoice.networkType)
+            if NetworkValidationHelper.isNetworkMismatch(addressNetwork: invoiceNetwork, currentNetwork: Env.network) {
+                result = .invalid
+                break
+            }
+
+            // Lightning-only invoice: check spending balance and expiry
+            let amountSats = invoice.amountSatoshis
+
+            // Priority 1: Insufficient spending balance (only check if amount > 0)
+            if amountSats > 0 && spendingBalanceSats < Int(amountSats) {
+                result = .insufficientSpending
+            } else if invoice.isExpired {
+                // Priority 2: Expired invoice (only after balance check passes)
+                result = .expiredLightningOnly
+            }
+
+        case let .onChain(invoice):
+            // Priority 0: Check network first - treat wrong network as invalid
+            let addressValidation = try? validateBitcoinAddress(address: invoice.address)
+            let addressNetwork: LDKNode.Network? = addressValidation.map { NetworkValidationHelper.convertNetworkType($0.network) }
+            if NetworkValidationHelper.isNetworkMismatch(addressNetwork: addressNetwork, currentNetwork: Env.network) {
+                result = .invalid
+                break
+            }
+
+            // BIP21 with potential lightning parameter
+            var canPayLightning = false
+            if let lnInvoice = invoice.params?["lightning"],
+               case let .lightning(lightningInvoice) = try? await decode(invoice: lnInvoice)
+            {
+                // Check for stale request after async decode
+                guard currentSequence == manualEntryValidationSequence else { return }
+
+                // Check lightning invoice network too
+                let lnNetwork = NetworkValidationHelper.convertNetworkType(lightningInvoice.networkType)
+                let lnNetworkMatch = !NetworkValidationHelper.isNetworkMismatch(addressNetwork: lnNetwork, currentNetwork: Env.network)
+
+                // Has lightning fallback - check if lightning is viable
+                canPayLightning = lnNetworkMatch && !lightningInvoice.isExpired &&
+                    (lightningInvoice.amountSatoshis == 0 || spendingBalanceSats >= Int(lightningInvoice.amountSatoshis))
+            }
+
+            if !canPayLightning {
+                // On-chain: check savings balance
+                if invoice.amountSatoshis > 0 && savingsBalanceSats < Int(invoice.amountSatoshis) {
+                    result = .insufficientSavings
+                } else if invoice.amountSatoshis == 0 && savingsBalanceSats == 0 {
+                    // Zero-amount invoice: user must have some balance to proceed
+                    result = .insufficientSavings
+                }
+            }
+
+        case .lnurlPay, .lnurlWithdraw, .lnurlChannel, .lnurlAuth, .nodeId, .gift:
+            // These types are valid if decoded successfully
+            result = .valid
+
+        default:
+            result = .invalid
+        }
+
+        guard currentSequence == manualEntryValidationSequence else { return }
+
+        manualEntryValidationResult = result
+        isManualEntryInputValid = (result == .valid)
+
+        // Show toast for error results
+        if result != .valid && result != .empty {
+            showValidationErrorToast(for: result)
+        }
     }
 }
 
@@ -436,11 +736,12 @@ extension AppViewModel {
             // Only relevant for channels to external nodes
             break
         case .channelReady(let channelId, userChannelId: _, counterpartyNodeId: _, fundingTxo: _):
-            if let channel = lightningService.channels?.first(where: { $0.channelId == channelId }) {
-                Task {
-                    let cjitOrder = try await CoreService.shared.blocktank.getCjit(channel: channel)
+            Task {
+                // Use channelCache instead of cachedChannels array, as it's updated immediately
+                if let channel = await lightningService.getChannelFromCache(channelId: channelId) {
+                    let cjitOrder = await CoreService.shared.blocktank.getCjit(channel: channel)
                     if cjitOrder != nil {
-                        let amount = channel.spendableBalanceSats
+                        let amount = channel.balanceOnCloseSats
                         let now = UInt64(Date().timeIntervalSince1970)
 
                         let ln = LightningActivity(
@@ -459,22 +760,40 @@ extension AppViewModel {
                         )
 
                         try await CoreService.shared.activity.insert(.lightning(ln))
+
+                        // Show receivedTx sheet for CJIT payment
+                        await MainActor.run {
+                            sheetViewModel.showSheet(.receivedTx, data: ReceivedTxSheetDetails(type: .lightning, sats: amount))
+                        }
                     } else {
+                        let channelCount = await MainActor.run {
+                            lightningService.channels?.count ?? 0
+                        }
+                        if channelCount == 1 {
+                            toast(
+                                type: .lightning,
+                                title: t("lightning__channel_opened_title"),
+                                description: t("lightning__channel_opened_msg"),
+                                visibilityTime: 5.0,
+                                accessibilityIdentifier: "SpendingBalanceReadyToast"
+                            )
+                        }
+                    }
+                } else {
+                    Logger.warn("Channel not found in cache: \(channelId)")
+                    let channelCount = await MainActor.run {
+                        lightningService.channels?.count ?? 0
+                    }
+                    if channelCount == 1 {
                         toast(
                             type: .lightning,
                             title: t("lightning__channel_opened_title"),
                             description: t("lightning__channel_opened_msg"),
-                            visibilityTime: 5.0
+                            visibilityTime: 5.0,
+                            accessibilityIdentifier: "SpendingBalanceReadyToast"
                         )
                     }
                 }
-            } else {
-                toast(
-                    type: .lightning,
-                    title: t("lightning__channel_opened_title"),
-                    description: t("lightning__channel_opened_msg"),
-                    visibilityTime: 5.0
-                )
             }
         case .channelClosed(channelId: _, userChannelId: _, counterpartyNodeId: _, reason: _):
             break
@@ -583,6 +902,31 @@ extension AppViewModel {
         case let .syncCompleted(syncType, syncedBlockHeight):
             Logger.info("Sync completed: \(syncType) at height \(syncedBlockHeight)")
 
+            if MigrationsService.shared.needsPostMigrationSync {
+                Task { @MainActor in
+                    try? await CoreService.shared.activity.syncLdkNodePayments(LightningService.shared.payments ?? [])
+                    await CoreService.shared.activity.markAllUnseenActivitiesAsSeen()
+                    await MigrationsService.shared.reapplyMetadataAfterSync()
+
+                    if MigrationsService.shared.canCleanupAfterMigration {
+                        if MigrationsService.shared.isShowingMigrationLoading {
+                            try? await LightningService.shared.restart()
+                        }
+
+                        SettingsViewModel.shared.updatePinEnabledState()
+                        MigrationsService.shared.cleanupAfterMigration()
+                        MigrationsService.shared.needsPostMigrationSync = false
+                        MigrationsService.shared.isRestoringFromRNRemoteBackup = false
+                    } else {
+                        Logger.info("Post-migration sync incomplete, will retry on next sync", context: "AppViewModel")
+                    }
+
+                    if MigrationsService.shared.isShowingMigrationLoading {
+                        MigrationsService.shared.isShowingMigrationLoading = false
+                    }
+                }
+            }
+
         // MARK: Balance Events
 
         case let .balanceChanged(oldSpendableOnchain, newSpendableOnchain, oldTotalOnchain, newTotalOnchain, oldLightning, newLightning):
@@ -606,12 +950,4 @@ extension AppViewModel {
         highBalanceIgnoreCount += 1
         highBalanceIgnoreTimestamp = Date().timeIntervalSince1970
     }
-}
-
-// MARK: - Paykit Pending Payment
-
-struct PaykitPendingPayment {
-    let recipientPubkey: String
-    let preferredMethod: String?
-    let amountSats: UInt64?
 }

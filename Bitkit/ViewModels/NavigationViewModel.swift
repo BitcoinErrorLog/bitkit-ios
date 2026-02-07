@@ -83,6 +83,11 @@ enum Route: Hashable {
     case electrumSettings
     case rgsSettings
     case addressViewer
+    case sweep
+    case sweepConfirm
+    case sweepFeeRate
+    case sweepFeeCustom
+    case sweepSuccess(txid: String)
 
     // Support settings
     case reportIssue
@@ -90,24 +95,9 @@ enum Route: Hashable {
 
     // Dev settings
     case blocktankRegtest
+    case ldkDebug
     case orders
     case logs
-    
-    // Paykit routes
-    case paykitDashboard
-    case paykitProfileEdit
-    case paykitContacts
-    case paykitContactDetail(String) // Contact ID
-    case paykitContactDiscovery
-    case paykitReceipts
-    case paykitReceiptDetail(String) // Receipt ID - PaykitIntegration excluded
-    case paykitSubscriptions
-    case paykitAutoPay
-    case paykitPaymentRequests
-    case paykitNoisePayment
-    case paykitPrivateEndpoints
-    case paykitRotationSettings
-    case paykitSessionManagement
 }
 
 @MainActor

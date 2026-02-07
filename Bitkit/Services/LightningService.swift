@@ -5,56 +5,84 @@ import LDKNode
 
 // TODO: catch all errors and pass a readable error message to the UI
 
-public class LightningService {
-    var node: Node?
+class LightningService {
+    private var node: Node?
     var currentWalletIndex: Int = 0
-    private var currentLogFilePath: String?
 
     private let syncStatusChangedSubject = PassthroughSubject<UInt64, Never>()
 
     private var channelCache: [String: ChannelDetails] = [:]
 
+    // Cached values to avoid blocking LDK calls on main thread
+    // MainActor isolated to prevent data races between background writes and UI reads
+    @MainActor private var cachedStatus: NodeStatus?
+    @MainActor private var cachedBalances: BalanceDetails?
+    @MainActor private var cachedPeers: [PeerDetails]?
+    @MainActor private var cachedChannels: [ChannelDetails]?
+
+    private var storedEventCallback: ((Event) -> Void)?
+
     var syncStatusChangedPublisher: AnyPublisher<UInt64, Never> {
         syncStatusChangedSubject.eraseToAnyPublisher()
     }
 
-    public static var shared = LightningService()
+    static var shared = LightningService()
 
     private init() {}
 
-    func setup(walletIndex: Int, electrumServerUrl: String? = nil, rgsServerUrl: String? = nil) async throws {
+    /// Flag and lock to prevent concurrent setup calls
+    private var isSettingUp = false
+    private let setupLock = NSLock()
+
+    func setup(
+        walletIndex: Int,
+        electrumServerUrl: String? = nil,
+        rgsServerUrl: String? = nil,
+        channelMigration: ChannelDataMigration? = nil
+    ) async throws {
+        // Guard against concurrent setup calls
+        let shouldProceed: Bool = setupLock.withLock {
+            guard !isSettingUp && node == nil else {
+                Logger.debug("Node already setting up or already set up, skipping")
+                return false
+            }
+            isSettingUp = true
+            return true
+        }
+        guard shouldProceed else { return }
+        defer { setupLock.withLock { isSettingUp = false } }
+
         Logger.debug("Checking lightning process lock...")
-        try StateLocker.lock(.lightning, wait: 30) // Wait 30 seconds to lock because maybe extension is still running
+        try await StateLocker.lock(.lightning, wait: 30) // Wait 30 seconds to lock because maybe extension is still running
 
         guard var mnemonic = try Keychain.loadString(key: .bip39Mnemonic(index: walletIndex)) else {
             throw CustomServiceError.mnemonicNotFound
         }
 
-        var passphrase = try Keychain.loadString(key: .bip39Passphrase(index: walletIndex))
+        // Normalize empty strings to nil - empty passphrase should be treated as no passphrase
+        let passphraseRaw = try Keychain.loadString(key: .bip39Passphrase(index: walletIndex))
+        var passphrase = passphraseRaw?.isEmpty == true ? nil : passphraseRaw
 
         currentWalletIndex = walletIndex
 
-        var config = LDKNode.defaultConfig()
+        var config = defaultConfig()
         let ldkStoragePath = Env.ldkStorage(walletIndex: walletIndex).path
         config.storageDirPath = ldkStoragePath
         config.network = Env.network
 
         Logger.debug("Using LDK storage path: \(ldkStoragePath)")
 
-        config.trustedPeers0conf = Env.trustedLnPeers.map(\.nodeId)
+        let trustedPeersIds = Env.trustedLnPeers.map(\.nodeId)
+
+        config.trustedPeers0conf = trustedPeersIds
         config.anchorChannelsConfig = .init(
-            trustedPeersNoReserve: Env.trustedLnPeers.map(\.nodeId),
+            trustedPeersNoReserve: trustedPeersIds,
             perChannelReserveSats: 1
         )
         config.includeUntrustedPendingInSpendable = true
 
         let builder = Builder.fromConfig(config: config)
-
-        Logger.info("LDK-node log path: \(ldkStoragePath)")
-
-        let logFilePath = generateLogFilePath()
-        currentLogFilePath = logFilePath
-        builder.setFilesystemLogger(logFilePath: logFilePath, maxLogLevel: Env.ldkLogLevel)
+        builder.setCustomLogger(logWriter: LdkLogWriter())
 
         let resolvedElectrumServerUrl = electrumServerUrl ?? Env.electrumServerUrl
 
@@ -78,7 +106,11 @@ public class LightningService {
         Logger.debug("Building ldk-node with vssUrl: '\(vssUrl)'")
         Logger.debug("Building ldk-node with lnurlAuthServerUrl: '\(lnurlAuthServerUrl)'")
 
-        // Set entropy from mnemonic on builder
+        if let channelMigration {
+            builder.setChannelDataMigration(migration: channelMigration)
+            Logger.info("Applied channel migration: \(channelMigration.channelMonitors.count) monitors", context: "Migration")
+        }
+
         builder.setEntropyBip39Mnemonic(mnemonic: mnemonic, passphrase: passphrase)
 
         try await ServiceQueue.background(.ldk) {
@@ -176,7 +208,11 @@ public class LightningService {
             throw AppError(serviceError: .nodeNotSetup)
         }
 
-        listenForEvents(onEvent: onEvent)
+        if let onEvent {
+            storedEventCallback = onEvent
+        }
+
+        listenForEvents(onEvent: storedEventCallback)
 
         Logger.debug("Starting node...")
         try await ServiceQueue.background(.ldk) {
@@ -184,6 +220,7 @@ public class LightningService {
         }
 
         await refreshChannelCache()
+        await refreshCache()
 
         Logger.info("Node started")
     }
@@ -203,7 +240,7 @@ public class LightningService {
         }
     }
 
-    func stop() async throws {
+    func stop(clearEventCallback: Bool = false) async throws {
         defer {
             // Always try to unlock, even if stopping fails
             try? StateLocker.unlock(.lightning)
@@ -219,6 +256,10 @@ public class LightningService {
             try node.stop()
         }
         self.node = nil
+
+        if clearEventCallback {
+            storedEventCallback = nil
+        }
 
         await MainActor.run {
             channelCache.removeAll()
@@ -240,6 +281,12 @@ public class LightningService {
 
         Logger.warn("Wiping on lighting wallet...")
         try FileManager.default.removeItem(at: directory)
+
+        await MainActor.run {
+            clearCache()
+            channelCache.removeAll()
+        }
+
         Logger.info("Lightning wallet wiped")
     }
 
@@ -308,6 +355,7 @@ public class LightningService {
         Logger.info("LDK synced")
 
         await refreshChannelCache()
+        await refreshCache()
 
         // Emit state change with sync timestamp from node status
         let nodeStatus = node.status()
@@ -360,24 +408,24 @@ public class LightningService {
     /// Checks if we have the correct outbound capacity to send the amount
     /// - Parameter amountSats: Amount to send in satoshis
     /// - Returns: True if we can send the amount
+    /// Note: Uses cached channels for fast, non-blocking checks
+    @MainActor
     func canSend(amountSats: UInt64) -> Bool {
         guard let channels else {
-            Logger.warn("Channels not available")
             return false
         }
 
-        // When geoblocked, only count non-LSP channels
-        let isGeoblocked = GeoService.shared.isGeoBlocked
-        let channelsToUse = isGeoblocked ? getNonLspChannels() : channels
+        let usableChannels = channels.filter(\.isUsable)
+        guard !usableChannels.isEmpty else {
+            return false
+        }
 
-        let totalNextOutboundHtlcLimitSats =
-            channelsToUse
-                .filter(\.isUsable)
-                .map(\.nextOutboundHtlcLimitMsat)
-                .reduce(0, +) / 1000
+        let totalNextOutboundHtlcLimitSats = usableChannels
+            .map(\.nextOutboundHtlcLimitMsat)
+            .reduce(0, +) / 1000
 
         guard totalNextOutboundHtlcLimitSats > amountSats else {
-            Logger.warn("Insufficient outbound capacity: \(totalNextOutboundHtlcLimitSats) < \(amountSats)")
+            Logger.warn("canSend: insufficient capacity: \(totalNextOutboundHtlcLimitSats) < \(amountSats)", context: "LightningService")
             return false
         }
 
@@ -434,16 +482,6 @@ public class LightningService {
             throw AppError(serviceError: .nodeNotSetup)
         }
 
-        // When geoblocked, verify we have external (non-LSP) peers
-        let isGeoblocked = GeoService.shared.isGeoBlocked
-        if isGeoblocked && !hasExternalPeers() {
-            Logger.error("Cannot send Lightning payment when geoblocked without external peers")
-            throw AppError(
-                message: "Lightning send unavailable",
-                debugMessage: "You need channels with non-Blocktank nodes to send Lightning payments."
-            )
-        }
-
         Logger.info("Paying bolt11: \(bolt11)")
 
         do {
@@ -491,6 +529,17 @@ public class LightningService {
         }
 
         Logger.debug("closeChannel called to channel=\(channel), force=\(force)", context: "LightningService")
+
+        // Prevent force closing channels with trusted peers (LSP nodes)
+        if force {
+            let trustedPeerIds = Set(getLspPeerNodeIds())
+            if trustedPeerIds.contains(channel.counterpartyNodeId.description) {
+                throw AppError(
+                    message: "Cannot force close channel with trusted peer",
+                    debugMessage: "Force close is disabled for Blocktank LSP channels. Please use cooperative close instead."
+                )
+            }
+        }
 
         return try await closeChannel(
             userChannelId: channel.userChannelId,
@@ -552,11 +601,7 @@ public class LightningService {
     }
 
     func dumpLdkLogs() {
-        guard let logFilePath = currentLogFilePath else {
-            Logger.error("No log file path available")
-            return
-        }
-
+        let logFilePath = Logger.sessionLogFile
         let fileURL = URL(fileURLWithPath: logFilePath)
 
         do {
@@ -571,30 +616,25 @@ public class LightningService {
         }
     }
 
-    // MARK: Logging helpers
-
-    private func generateLogFilePath() -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        dateFormatter.timeZone = TimeZone(abbreviation: "UTC")
-        let timestamp = dateFormatter.string(from: Date())
-
-        let baseDir = Env.logDirectory
-        let contextPrefix = Env.currentExecutionContext.filenamePrefix
-        let logFilePath = "\(baseDir)/ldk_\(contextPrefix)_\(timestamp).log"
-
-        // Create directory if it doesn't exist
-        let directory = URL(fileURLWithPath: baseDir)
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            } catch {
-                Logger.error("Failed to create log directory: \(error)")
-            }
+    func logNetworkGraphInfo() async throws -> String {
+        guard let node else {
+            throw AppError(serviceError: .nodeNotSetup)
         }
 
-        Logger.debug("Generated LDK log file path: \(logFilePath)")
-        return logFilePath
+        let nodeStatus = node.status()
+        let networkGraph = node.networkGraph()
+        let allNodes = networkGraph.listNodes()
+        let lastRgsSync = nodeStatus.latestRgsSnapshotTimestamp
+
+        var lastRgsSyncString = "Never"
+        if let lastRgsSync {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            dateFormatter.timeZone = TimeZone(abbreviation: "UTC")
+            lastRgsSyncString = dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(lastRgsSync)))
+        }
+
+        return "Nodes: \(allNodes.count), Last Synced: \(lastRgsSyncString)"
     }
 
     // MARK: - Configuration Helpers
@@ -615,11 +655,51 @@ public class LightningService {
 
 extension LightningService {
     var nodeId: String? { node?.nodeId() }
-    var balances: BalanceDetails? { node?.listBalances() }
-    var status: NodeStatus? { node?.status() }
-    var peers: [PeerDetails]? { node?.listPeers() }
-    var channels: [ChannelDetails]? { node?.listChannels() }
+
+    // Use cached values to avoid blocking LDK calls on main thread
+    @MainActor var balances: BalanceDetails? { cachedBalances }
+    @MainActor var status: NodeStatus? { cachedStatus }
+    @MainActor var peers: [PeerDetails]? { cachedPeers }
+    @MainActor var channels: [ChannelDetails]? { cachedChannels }
     var payments: [PaymentDetails]? { node?.listPayments() }
+
+    /// Refresh all cached values asynchronously
+    /// Fetches from LDK on background queue, updates cache on main actor
+    func refreshCache() async {
+        // Skip if node isn't set up yet - don't block on the LDK queue
+        guard node != nil else { return }
+
+        do {
+            // Fetch all values in a single background queue call
+            let (newStatus, newBalances, newPeers, newChannels) = try await ServiceQueue.background(.ldk) { [self] in
+                (
+                    node?.status(),
+                    node?.listBalances(),
+                    node?.listPeers(),
+                    node?.listChannels()
+                )
+            }
+
+            // Update cache on main actor
+            await MainActor.run {
+                cachedStatus = newStatus
+                cachedBalances = newBalances
+                cachedPeers = newPeers
+                cachedChannels = newChannels
+            }
+        } catch {
+            Logger.error("Failed to refresh cache: \(error)", context: "LightningService")
+        }
+    }
+
+    /// Clear cached values - only call when wiping storage or resetting the wallet.
+    @MainActor
+    func clearCache() {
+        cachedStatus = nil
+        cachedBalances = nil
+        cachedPeers = nil
+        cachedChannels = nil
+    }
 
     /// Get balance for a specific address in satoshis
     /// - Parameter address: The Bitcoin address to check
@@ -640,23 +720,25 @@ extension LightningService {
         return Env.trustedLnPeers.map(\.nodeId)
     }
 
-    /// Checks if there are connected peers other than LSP peers
-    /// Used for geoblocking to determine if Lightning operations can proceed
-    func hasExternalPeers() -> Bool {
-        guard let peers else { return false }
-        let lspNodeIds = Set(getLspPeerNodeIds())
-        return peers.contains { peer in
-            !lspNodeIds.contains(peer.nodeId)
+    /// Separates channels into trusted (LSP) and non-trusted peers
+    func separateTrustedChannels(_ channels: [ChannelDetails]) -> (trusted: [ChannelDetails], nonTrusted: [ChannelDetails]) {
+        let trustedPeerIds = Set(getLspPeerNodeIds())
+        let trusted = channels.filter { channel in
+            trustedPeerIds.contains(channel.counterpartyNodeId.description)
         }
+        let nonTrusted = channels.filter { channel in
+            !trustedPeerIds.contains(channel.counterpartyNodeId.description)
+        }
+        return (trusted: trusted, nonTrusted: nonTrusted)
     }
 
-    /// Filters channels to exclude LSP channels
-    /// Used for geoblocking to only allow operations through non-Blocktank channels
-    func getNonLspChannels() -> [ChannelDetails] {
-        guard let channels else { return [] }
-        let lspNodeIds = Set(getLspPeerNodeIds())
-        return channels.filter { channel in
-            !lspNodeIds.contains(channel.counterpartyNodeId)
+    /// Get a channel by ID from the channel cache
+    /// This is more reliable than using the cachedChannels array when handling events,
+    /// as the channelCache is updated immediately when channel events occur
+    func getChannelFromCache(channelId: ChannelId) async -> ChannelDetails? {
+        let channelIdString = channelId.description
+        return await MainActor.run {
+            channelCache[channelIdString]
         }
     }
 }
@@ -683,7 +765,7 @@ extension LightningService {
                 onEvent?(event)
 
                 switch event {
-                case let .paymentSuccessful(paymentId, paymentHash, _, feePaidMsat):
+                case let .paymentSuccessful(paymentId, paymentHash, paymentPreimage, feePaidMsat):
                     Logger.info("✅ Payment successful: paymentId: \(paymentId ?? "?") paymentHash: \(paymentHash) feePaidMsat: \(feePaidMsat ?? 0)")
                     Task {
                         let hash = paymentId ?? paymentHash
@@ -708,7 +790,7 @@ extension LightningService {
                             Logger.warn("No paymentId or paymentHash available for failed payment", context: "LightningService")
                         }
                     }
-                case let .paymentReceived(paymentId, paymentHash, amountMsat, _):
+                case let .paymentReceived(paymentId, paymentHash, amountMsat, feePaidMsat):
                     Logger.info("🤑 Payment received: paymentId: \(paymentId ?? "?") paymentHash: \(paymentHash) amountMsat: \(amountMsat)")
                     Task {
                         let hash = paymentId ?? paymentHash
@@ -718,7 +800,7 @@ extension LightningService {
                             Logger.error("Failed to handle payment received for \(hash): \(error)", context: "LightningService")
                         }
                     }
-                case let .paymentClaimable(paymentId, paymentHash, claimableAmountMsat, _, _):
+                case let .paymentClaimable(paymentId, paymentHash, claimableAmountMsat, claimDeadline, customRecords):
                     Logger.info(
                         "🫰 Payment claimable: paymentId: \(paymentId) paymentHash: \(paymentHash) claimableAmountMsat: \(claimableAmountMsat)"
                     )
@@ -770,7 +852,7 @@ extension LightningService {
                             Logger.error("Failed to handle transaction received for \(txid): \(error)", context: "LightningService")
                         }
                     }
-                case let .onchainTransactionConfirmed(txid, _, blockHeight, _, details):
+                case let .onchainTransactionConfirmed(txid, blockHash, blockHeight, confirmationTime, details):
                     Logger.info("✅ Onchain transaction confirmed: txid=\(txid) blockHeight=\(blockHeight) amountSats=\(details.amountSats)")
                     Task {
                         do {
@@ -824,7 +906,7 @@ extension LightningService {
 
                 // MARK: Balance Events
 
-                case let .balanceChanged(oldSpendableOnchain, newSpendableOnchain, _, _, oldLightning, newLightning):
+                case let .balanceChanged(oldSpendableOnchain, newSpendableOnchain, oldTotalOnchain, newTotalOnchain, oldLightning, newLightning):
                     Logger
                         .info("💰 Balance changed: onchain=\(oldSpendableOnchain)->\(newSpendableOnchain) lightning=\(oldLightning)->\(newLightning)")
 

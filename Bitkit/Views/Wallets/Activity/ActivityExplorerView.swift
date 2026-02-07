@@ -41,12 +41,7 @@ struct ActivityExplorerView: View {
     }
 
     private func getBlockExplorerUrl(txId: String) -> URL? {
-        let baseUrl =
-            switch Env.network {
-            case .testnet: "https://mempool.space/testnet"
-            case .bitcoin, .regtest, .signet: "https://mempool.space"
-            }
-        return URL(string: "\(baseUrl)/tx/\(txId)")
+        return URL(string: "\(Env.blockExplorerUrl)/tx/\(txId)")
     }
 
     private func loadTransactionDetails() async {
@@ -153,6 +148,7 @@ struct ActivityExplorerView: View {
                 MoneyStack(sats: amount, prefix: amountPrefix, showSymbol: false)
                 Spacer()
                 ActivityIcon(activity: item, size: 48)
+                    .offset(y: 5) // Align arrow with bottom of money stack
             }
             .padding(.bottom, 32)
 
@@ -195,15 +191,9 @@ struct ActivityExplorerView: View {
                     Divider()
                         .padding(.bottom, 16)
                     ForEach(Array(onchain.boostTxIds.enumerated()), id: \.offset) { index, boostTxId in
-                        // Determine if this is RBF (doesExist = false, replaced) or CPFP (doesExist = true, child transaction)
-                        let boostTxDoesExistValue = boostTxDoesExist[boostTxId] ?? true
-                        let isRBF = !boostTxDoesExistValue
-                        let key = isRBF
-                            ? "wallet__activity_boosted_rbf"
-                            : "wallet__activity_boosted_cpfp"
-
+                        let isRBF = onchain.txType == .sent || !(boostTxDoesExist[boostTxId] ?? true)
                         InfoSection(
-                            title: t(key, variables: ["num": String(index + 1)]),
+                            title: t(isRBF ? "wallet__activity_boosted_rbf" : "wallet__activity_boosted_cpfp", variables: ["num": String(index + 1)]),
                             content: boostTxId,
                             testId: isRBF ? "RBFBoosted" : "CPFPBoosted"
                         )

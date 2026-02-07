@@ -22,12 +22,14 @@ class TransferViewModel: ObservableObject {
     @Published var transferValues = TransferValues()
     @Published var selectedChannelIds: [String] = []
     @Published var channelsToClose: [ChannelDetails] = []
+    @Published var transferUnavailable = false
 
     private let coreService: CoreService
     private let lightningService: LightningService
     private let currencyService: CurrencyService
     private let transferService: TransferService
     private let sheetViewModel: SheetViewModel
+    private let onBalanceRefresh: (() async -> Void)?
 
     private var refreshTimer: Timer?
     private var refreshTask: Task<Void, Never>?
@@ -41,13 +43,15 @@ class TransferViewModel: ObservableObject {
         lightningService: LightningService = .shared,
         currencyService: CurrencyService = .shared,
         transferService: TransferService,
-        sheetViewModel: SheetViewModel
+        sheetViewModel: SheetViewModel,
+        onBalanceRefresh: (() async -> Void)? = nil
     ) {
         self.coreService = coreService
         self.lightningService = lightningService
         self.currencyService = currencyService
         self.transferService = transferService
         self.sheetViewModel = sheetViewModel
+        self.onBalanceRefresh = onBalanceRefresh
     }
 
     /// Convenience initializer for testing and previews
@@ -113,24 +117,59 @@ class TransferViewModel: ObservableObject {
         uiState.isAdvanced = true
     }
 
-    func payOrder(order: IBtOrder, speed: TransactionSpeed) async throws {
-        var fees = try? await coreService.blocktank.fees(refresh: true)
-        if fees == nil {
-            Logger.warn("Failed to fetch fresh fee rate, using cached rate.")
-            fees = try await coreService.blocktank.fees(refresh: false)
-        }
+    func displayOrder(for order: IBtOrder) -> IBtOrder {
+        uiState.order ?? order
+    }
 
-        guard let fees else {
-            throw AppError(message: "Fees unavailable from bitkit-core", debugMessage: nil)
+    func payOrder(
+        order: IBtOrder,
+        speed: TransactionSpeed,
+        txFee: UInt64,
+        utxosToSpend: [SpendableUtxo]? = nil,
+        satsPerVbyte: UInt32? = nil,
+        isMaxAmount: Bool = false,
+        maxSendableAmount: UInt64? = nil
+    ) async throws {
+        let rate: UInt32
+        if let satsPerVbyte {
+            rate = satsPerVbyte
+        } else {
+            var fees = try? await coreService.blocktank.fees(refresh: true)
+            if fees == nil {
+                Logger.warn("Failed to fetch fresh fee rate, using cached rate.")
+                fees = try await coreService.blocktank.fees(refresh: false)
+            }
+            guard let fees else {
+                throw AppError(message: "Fees unavailable from bitkit-core", debugMessage: nil)
+            }
+            rate = speed.getFeeRate(from: fees)
         }
-
-        let satsPerVbyte = speed.getFeeRate(from: fees)
 
         guard let address = order.payment?.onchain?.address else {
             throw AppError(message: "Order payment onchain address is nil", debugMessage: nil)
         }
 
-        let txid = try await lightningService.send(address: address, sats: order.feeSat, satsPerVbyte: satsPerVbyte)
+        let preTransferOnchainSats = lightningService.balances?.totalOnchainBalanceSats ?? 0
+
+        // Verify we can afford the transfer when using sendAll
+        if isMaxAmount, let maxSendable = maxSendableAmount, maxSendable < order.feeSat {
+            throw AppError(
+                message: t("other__pay_insufficient_savings"),
+                debugMessage: "Fee rate changed. Max sendable: \(maxSendable), order requires: \(order.feeSat)"
+            )
+        }
+
+        // For sendAll (change would be dust), send entire balance
+        // Otherwise, send exact order.feeSat amount
+        let txid = try await lightningService.send(
+            address: address,
+            sats: order.feeSat,
+            satsPerVbyte: rate,
+            utxosToSpend: utxosToSpend,
+            isMaxAmount: isMaxAmount
+        )
+
+        let txTotalSats = order.feeSat + txFee
 
         // Create transfer tracking record for spending
         do {
@@ -143,7 +182,7 @@ class TransferViewModel: ObservableObject {
                 txId: txid,
                 address: address,
                 isReceive: false,
-                feeRate: UInt64(satsPerVbyte),
+                feeRate: UInt64(rate),
                 isTransfer: true,
                 channelId: nil,
                 createdAt: currentTime
@@ -154,7 +193,9 @@ class TransferViewModel: ObservableObject {
                 type: .toSpending,
                 amountSats: order.clientBalanceSat,
                 fundingTxId: txid,
-                lspOrderId: order.id
+                lspOrderId: order.id,
+                txTotalSats: txTotalSats,
+                preTransferOnchainSats: preTransferOnchainSats
             )
             Logger.info("Created transfer tracking record: \(transferId)", context: "TransferViewModel")
         } catch {
@@ -558,6 +599,8 @@ class TransferViewModel: ObservableObject {
         // Sync transfer states after attempting closures
         try? await transferService.syncTransferStates()
 
+        await onBalanceRefresh?()
+
         return failedChannels
     }
 
@@ -581,6 +624,7 @@ class TransferViewModel: ObservableObject {
 
                         // Final sync after successful closure
                         try? await transferService.syncTransferStates()
+                        await onBalanceRefresh?()
 
                         return
                     } else {
@@ -594,26 +638,50 @@ class TransferViewModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(retryInterval * 1_000_000_000))
             }
 
-            Logger.info("Giving up on coop close. Showing force transfer UI.")
+            Logger.info("Giving up on coop close. Checking if force close is possible.")
 
-            // Show force transfer sheet
-            sheetViewModel.showSheet(.forceTransfer)
+            // Check if any channels can be force closed (filter out trusted peers)
+            let (_, nonTrustedChannels) = lightningService.separateTrustedChannels(channelsToClose)
+
+            if !nonTrustedChannels.isEmpty {
+                sheetViewModel.showSheet(.forceTransfer)
+            } else {
+                Logger.warn("All channels are with trusted peers. Cannot force close.")
+                channelsToClose.removeAll()
+                transferUnavailable = true
+            }
         }
     }
 
     /// Force close all channels that failed to cooperatively close
-    func forceCloseChannel() async throws {
+    /// Returns the number of trusted peer channels that were skipped
+    func forceCloseChannel() async throws -> Int {
         guard !channelsToClose.isEmpty else {
             Logger.warn("No channels to force close")
-            return
+            return 0
         }
 
-        Logger.info("Force closing \(channelsToClose.count) channel(s)")
+        // Filter out trusted peer channels (cannot force close LSP channels)
+        let (trustedChannels, nonTrustedChannels) = lightningService.separateTrustedChannels(channelsToClose)
+
+        if !trustedChannels.isEmpty {
+            Logger.warn("Skipping \(trustedChannels.count) trusted peer channel(s)")
+        }
+
+        guard !nonTrustedChannels.isEmpty else {
+            channelsToClose.removeAll()
+            throw AppError(
+                message: "Cannot force close channels with trusted peer",
+                debugMessage: "All channels are with trusted peers (LSP). Force close is disabled."
+            )
+        }
+
+        Logger.info("Force closing \(nonTrustedChannels.count) channel(s)")
 
         var errors: [(channelId: String, error: Error)] = []
         var successfulChannels: [ChannelDetails] = []
 
-        for channel in channelsToClose {
+        for channel in nonTrustedChannels {
             do {
                 // Force close the channel first
                 try await lightningService.closeChannel(
@@ -645,12 +713,15 @@ class TransferViewModel: ObservableObject {
             }
         }
 
-        // Remove successfully closed channels from the list
+        // Remove successfully closed channels and trusted peer channels from the list
         channelsToClose.removeAll { channel in
-            successfulChannels.contains { $0.channelId == channel.channelId }
+            successfulChannels.contains { $0.channelId == channel.channelId } ||
+                trustedChannels.contains { $0.channelId == channel.channelId }
         }
 
         try? await transferService.syncTransferStates()
+
+        await onBalanceRefresh?()
 
         // If any errors occurred, throw an aggregated error
         if !errors.isEmpty {
@@ -660,6 +731,8 @@ class TransferViewModel: ObservableObject {
                 debugMessage: errorMessages
             )
         }
+
+        return trustedChannels.count
     }
 }
 

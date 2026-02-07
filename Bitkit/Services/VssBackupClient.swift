@@ -1,18 +1,69 @@
 import Foundation
 import VssRustClientFfi
 
+/// Actor to coordinate VSS client setup (ensures only one setup runs at a time)
+private actor VssSetupCoordinator {
+    private enum SetupState {
+        case idle
+        case inProgress(Task<Void, Error>)
+        case completed
+    }
+
+    private var state: SetupState = .idle
+
+    func awaitSetup(setupAction: @escaping () async throws -> Void) async throws {
+        switch state {
+        case .completed:
+            Logger.debug("VssSetupCoordinator: already completed, returning", context: "VssBackupClient")
+            return
+
+        case let .inProgress(existingTask):
+            Logger.debug("VssSetupCoordinator: setup in progress, waiting for existing task", context: "VssBackupClient")
+            try await existingTask.value
+            Logger.debug("VssSetupCoordinator: existing task completed", context: "VssBackupClient")
+            return
+
+        case .idle:
+            Logger.debug("VssSetupCoordinator: idle, starting new setup", context: "VssBackupClient")
+            let task = Task {
+                try await setupAction()
+            }
+            state = .inProgress(task)
+
+            do {
+                try await task.value
+                state = .completed
+                Logger.debug("VssSetupCoordinator: setup completed successfully", context: "VssBackupClient")
+            } catch {
+                // Reset on any error to allow retry attempts
+                state = .idle
+                Logger.debug("VssSetupCoordinator: setup failed, resetting to idle", context: "VssBackupClient")
+                throw error
+            }
+        }
+    }
+
+    func reset() {
+        Logger.debug("VssSetupCoordinator: reset called", context: "VssBackupClient")
+        if case let .inProgress(task) = state {
+            task.cancel()
+        }
+        state = .idle
+    }
+}
+
 class VssBackupClient {
     static let shared = VssBackupClient()
 
-    private var isSetup: Task<Void, Error>?
+    private let setupCoordinator = VssSetupCoordinator()
 
     private init() {}
 
-    func reset() {
-        isSetup = nil
+    func reset() async {
+        await setupCoordinator.reset()
     }
 
-    func setup(walletIndex: Int = 0) async throws {
+    private func setup(walletIndex: Int = 0) async throws {
         do {
             try await withTimeout(seconds: 30) {
                 Logger.debug("VSS client setting up…", context: "VssBackupClient")
@@ -28,7 +79,9 @@ class VssBackupClient {
                     guard let mnemonic = try Keychain.loadString(key: .bip39Mnemonic(index: walletIndex)) else {
                         throw CustomServiceError.mnemonicNotFound
                     }
-                    let passphrase = try Keychain.loadString(key: .bip39Passphrase(index: walletIndex))
+                    // Normalize empty strings to nil - empty passphrase should be treated as no passphrase
+                    let passphraseRaw = try Keychain.loadString(key: .bip39Passphrase(index: walletIndex))
+                    let passphrase = passphraseRaw?.isEmpty == true ? nil : passphraseRaw
 
                     try await vssNewClientWithLnurlAuth(
                         baseUrl: vssUrl,
@@ -87,25 +140,8 @@ class VssBackupClient {
     }
 
     private func awaitSetup() async throws {
-        if let existingSetup = isSetup {
-            do {
-                try await existingSetup.value
-            } catch let error as CancellationError {
-                isSetup = nil
-                throw error
-            }
-        }
-
-        let setupTask = Task {
+        try await setupCoordinator.awaitSetup { [self] in
             try await setup()
-        }
-        isSetup = setupTask
-
-        do {
-            try await setupTask.value
-        } catch let error as CancellationError {
-            isSetup = nil
-            throw error
         }
     }
 

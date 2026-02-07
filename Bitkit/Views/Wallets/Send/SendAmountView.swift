@@ -20,6 +20,13 @@ struct SendAmountView: View {
         app.scannedOnchainInvoice != nil && app.scannedLightningInvoice != nil
     }
 
+    private var assetButtonTestIdentifier: String {
+        if canSwitchWallet {
+            return "switch"
+        }
+        return app.selectedWalletToPayFrom == .lightning ? "spending" : "savings"
+    }
+
     /// The amount to display in the available balance section
     /// For onchain transactions, this shows the max sendable amount (balance minus fees)
     /// For lightning transactions, this shows the max sendable lightning amount minus routing fees
@@ -50,7 +57,7 @@ struct SendAmountView: View {
             SheetHeader(title: t("wallet__send_amount"), showBackButton: true)
 
             VStack(alignment: .leading, spacing: 0) {
-                NumberPadTextField(viewModel: amountViewModel)
+                NumberPadTextField(viewModel: amountViewModel, testIdentifier: "SendNumberField")
                     .onTapGesture {
                         amountViewModel.togglePrimaryDisplay(currency: currency)
                     }
@@ -92,6 +99,7 @@ struct SendAmountView: View {
                             app.selectedWalletToPayFrom.toggle()
                         }
                     }
+                    .accessibilityIdentifier("AssetButton-\(assetButtonTestIdentifier)")
 
                     NumberPadActionButton(
                         text: currency.primaryDisplay == .bitcoin ? "Bitcoin" : currency.selectedCurrency,
@@ -127,9 +135,18 @@ struct SendAmountView: View {
         .padding(.horizontal, 16)
         .sheetBackground()
         .onAppear {
-            if let invoice = app.scannedOnchainInvoice {
+            if let invoice = app.scannedOnchainInvoice, invoice.amountSatoshis > 0 {
                 // Set the amount to the scanned onchain invoice amount if it exists
                 amountViewModel.updateFromSats(invoice.amountSatoshis, currency: currency)
+                wallet.sendAmountSats = invoice.amountSatoshis
+            } else if let lightningInvoice = app.scannedLightningInvoice,
+                      lightningInvoice.amountSatoshis > 0,
+                      wallet.sendAmountSats == nil || wallet.sendAmountSats == 0
+            {
+                amountViewModel.updateFromSats(lightningInvoice.amountSatoshis, currency: currency)
+                wallet.sendAmountSats = lightningInvoice.amountSatoshis
+            } else if let existingAmount = wallet.sendAmountSats, existingAmount > 0 {
+                amountViewModel.updateFromSats(existingAmount, currency: currency)
             }
 
             // Calculate max sendable amount for onchain transactions
@@ -155,6 +172,14 @@ struct SendAmountView: View {
                     await calculateRoutingFee()
                 }
                 maxSendableAmount = nil
+            }
+        }
+        .onChange(of: wallet.selectedFeeRateSatsPerVByte) { _ in
+            // Recalculate max sendable amount when fee rate becomes available or changes
+            if app.selectedWalletToPayFrom == .onchain {
+                Task {
+                    await calculateMaxSendableAmount()
+                }
             }
         }
     }
@@ -241,8 +266,8 @@ struct SendAmountView: View {
         } catch {
             Logger.error("Failed to calculate max sendable amount: \(error)")
             await MainActor.run {
-                // Fall back to total balance if calculation fails
-                maxSendableAmount = UInt64(wallet.spendableOnchainBalanceSats)
+                // Keep as nil on error - availableAmount will fall back to total balance
+                maxSendableAmount = nil
             }
         }
     }

@@ -1,18 +1,10 @@
-import BackgroundTasks
 import SwiftUI
-import UserNotifications
 
 // MARK: - Quick Action Notification
 
 // Communication bridge between delegates and SwiftUI views
 extension Notification.Name {
     static let quickActionSelected = Notification.Name("quickActionSelected")
-    static let paykitPayContact = Notification.Name("paykitPayContact")
-    static let paykitPaymentFailed = Notification.Name("paykitPaymentFailed")
-    static let paykitRequestPayment = Notification.Name("paykitRequestPayment")
-    static let paykitSubscriptionProposal = Notification.Name("paykitSubscriptionProposal")
-    static let profileUpdated = Notification.Name("profileUpdated")
-    static let incomingPaymentNotification = Notification.Name("incomingPaymentNotification")
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
@@ -21,9 +13,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool
     {
         UNUserNotificationCenter.current().delegate = self
-        
-        // Register time-sensitive notification categories for incoming payments
-        registerNotificationCategories()
 
         // Check notification authorization status at launch and re-register with APN if granted
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -33,31 +22,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 }
             }
         }
-        
-        // Register Paykit background tasks
-        SubscriptionBackgroundService.shared.registerBackgroundTask()
-        PaykitPollingService.shared.registerBackgroundTask()
-        SessionRefreshService.shared.registerBackgroundTask()
 
         return true
-    }
-    
-    private func registerNotificationCategories() {
-        let openAction = UNNotificationAction(
-            identifier: "OPEN_NOW",
-            title: "Open Now",
-            options: [.foreground]
-        )
-        
-        let incomingPayment = UNNotificationCategory(
-            identifier: "INCOMING_PAYMENT",
-            actions: [openAction],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-        
-        UNUserNotificationCenter.current().setNotificationCategories([incomingPayment])
-        Logger.debug("🔔 Registered notification categories", context: "AppDelegate")
     }
 
     // MARK: - Scene Configuration
@@ -78,17 +44,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func applicationWillTerminate(_ application: UIApplication) {
         try? StateLocker.unlock(.lightning)
     }
-    
-    // MARK: - URL Handling
-    
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Route bitkit:// URLs to PubkyRingBridge for Paykit/Pubky-ring callbacks
-        if url.scheme == "bitkit" {
-            Logger.info("AppDelegate: Received bitkit:// URL: \(url.absoluteString)", context: "AppDelegate")
-            return PubkyRingBridge.shared.handleCallback(url: url)
-        }
-        return false
-    }
 }
 
 // MARK: - Push Notifications
@@ -101,52 +56,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         Logger.error("🔔 AppDelegate: didFailToRegisterForRemoteNotificationsWithError: \(error)")
-    }
-    
-    func application(
-        _ application: UIApplication,
-        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
-        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
-    ) {
-        Logger.info("🔔 Silent push received", context: "AppDelegate")
-        
-        guard let type = userInfo["type"] as? String, type == "incoming_htlc_wake" else {
-            Logger.debug("🔔 Silent push is not an HTLC wake type, ignoring", context: "AppDelegate")
-            completionHandler(.noData)
-            return
-        }
-        
-        Logger.info("🔔 Processing incoming HTLC wake push in background", context: "AppDelegate")
-        let startTime = Date()
-        
-        var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-        backgroundTaskID = application.beginBackgroundTask(withName: "ProcessIncomingHTLC") {
-            Logger.info("🔔 Background task expiring, stopping node", context: "AppDelegate")
-            Task {
-                try? await LightningService.shared.stop()
-            }
-            application.endBackgroundTask(backgroundTaskID)
-        }
-        
-        Task {
-            defer {
-                let elapsed = Date().timeIntervalSince(startTime)
-                Logger.info("🔔 Background HTLC processing completed in \(String(format: "%.2f", elapsed))s", context: "AppDelegate")
-                application.endBackgroundTask(backgroundTaskID)
-            }
-            
-            do {
-                try await processIncomingHTLCInBackground(userInfo: userInfo)
-                completionHandler(.newData)
-            } catch {
-                Logger.error("🔔 Background HTLC processing failed: \(error)", context: "AppDelegate")
-                completionHandler(.failed)
-            }
-        }
-    }
-    
-    private func processIncomingHTLCInBackground(userInfo: [AnyHashable: Any]) async throws {
-        try await BackgroundNodeHelper.shared.performSyncAndWait(walletIndex: 0, waitDuration: 5)
     }
 
     // Foreground notification presentation

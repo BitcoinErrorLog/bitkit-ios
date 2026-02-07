@@ -1,5 +1,4 @@
 import SwiftUI
-// PaykitMobile types are part of this module (no import needed)
 
 struct MainNavView: View {
     @EnvironmentObject private var app: AppViewModel
@@ -10,6 +9,8 @@ struct MainNavView: View {
     @EnvironmentObject private var settings: SettingsViewModel
     @EnvironmentObject private var wallet: WalletViewModel
     @Environment(\.scenePhase) var scenePhase
+
+    @StateObject private var sweepViewModel = SweepViewModel()
 
     @State private var showClipboardAlert = false
     @State private var clipboardUri: String?
@@ -65,6 +66,14 @@ struct MainNavView: View {
             config in GiftSheet(config: config)
         }
         .sheet(
+            item: $sheets.connectionClosedSheetItem,
+            onDismiss: {
+                sheets.hideSheet()
+            }
+        ) {
+            config in ConnectionClosedSheet(config: config)
+        }
+        .sheet(
             item: $sheets.highBalanceSheetItem,
             onDismiss: {
                 sheets.hideSheet()
@@ -72,14 +81,6 @@ struct MainNavView: View {
             }
         ) {
             config in HighBalanceSheet(config: config)
-        }
-        .sheet(
-            item: $sheets.incomingPaymentSheetItem,
-            onDismiss: {
-                sheets.hideSheet()
-            }
-        ) { config in
-            IncomingPaymentView(paymentHash: config.paymentHash)
         }
         .sheet(
             item: $sheets.lnurlAuthSheetItem,
@@ -92,7 +93,7 @@ struct MainNavView: View {
         .sheet(
             item: $sheets.lnurlWithdrawSheetItem,
             onDismiss: {
-                sheets.hideSheet()
+                sheets.hideSheetIfActive(.lnurlWithdraw, reason: "LNURL withdraw sheet dismissed")
             }
         ) {
             config in LnurlWithdrawSheet(config: config)
@@ -125,7 +126,7 @@ struct MainNavView: View {
         .sheet(
             item: $sheets.scannerSheetItem,
             onDismiss: {
-                sheets.hideSheet()
+                sheets.hideSheetIfActive(.scanner, reason: "Scanner sheet dismissed")
             }
         ) {
             config in ScannerSheet(config: config)
@@ -150,7 +151,7 @@ struct MainNavView: View {
         .sheet(
             item: $sheets.sendSheetItem,
             onDismiss: {
-                sheets.hideSheet()
+                sheets.hideSheetIfActive(.send, reason: "Send sheet dismissed")
             }
         ) {
             config in SendSheet(config: config)
@@ -162,6 +163,14 @@ struct MainNavView: View {
             }
         ) {
             config in ForceTransferSheet(config: config)
+        }
+        .sheet(
+            item: $sheets.sweepPromptSheetItem,
+            onDismiss: {
+                sheets.hideSheet()
+            }
+        ) {
+            config in SweepPromptSheet(config: config)
         }
         .accentColor(.white)
         .overlay {
@@ -198,8 +207,8 @@ struct MainNavView: View {
                         Logger.error("Failed to sync push notifications with backend: \(error)")
                         app.toast(
                             type: .error,
-                            title: tTodo("Notification Registration Failed"),
-                            description: tTodo("Bitkit was unable to register for push notifications.")
+                            title: t("other__notification_registration_failed_title"),
+                            description: t("other__notification_registration_failed_description")
                         )
                     }
                 }
@@ -219,8 +228,8 @@ struct MainNavView: View {
                             Logger.error("Failed to sync push notifications: \(error)")
                             app.toast(
                                 type: .error,
-                                title: tTodo("Notification Registration Failed"),
-                                description: tTodo("Bitkit was unable to register for push notifications.")
+                                title: t("other__notification_registration_failed_title"),
+                                description: t("other__notification_registration_failed_description")
                             )
                         }
                     }
@@ -234,26 +243,6 @@ struct MainNavView: View {
             Task {
                 Logger.info("Received deeplink: \(url.absoluteString)")
 
-                // Handle Pubky-ring callbacks first (session, keypair, profile, follows)
-                if PubkyRingBridge.shared.handleCallback(url: url) {
-                    Logger.info("Handled Pubky-ring callback: \(url.host ?? "unknown")")
-                    return
-                }
-
-                // Handle bitkit://subscriptions deep link
-                if url.scheme == "bitkit" && url.host == "subscriptions" {
-                    Logger.info("Navigating to subscriptions via deep link", context: "MainNavView")
-                    navigation.navigate(.paykitSubscriptions)
-                    return
-                }
-                
-                // Check if this is a Paykit payment request
-                if url.scheme == "paykit" || (url.scheme == "bitkit" && url.host == "payment-request") {
-                    await handlePaymentRequestDeepLink(url: url, app: app, sheets: sheets)
-                    return
-                }
-
-                // Handle other deep links (Bitcoin, Lightning, etc.)
                 do {
                     try await app.handleScannedData(url.absoluteString)
                     PaymentNavigationHelper.openPaymentSheet(
@@ -298,17 +287,19 @@ struct MainNavView: View {
             case .activity:
                 AllActivityView()
             case .contacts:
-                if app.hasSeenContactsIntro {
-                    PaykitContactsView()
-                } else {
-                    ContactsIntroView()
-                }
+                // if app.hasSeenContactsIntro {
+                //     ContactsView()
+                // } else {
+                //     ContactsIntroView()
+                // }
+                ComingSoonScreen()
             case .profile:
-                if app.hasSeenProfileIntro {
-                    ProfileEditView()
-                } else {
-                    ProfileIntroView()
-                }
+                // if app.hasSeenProfileIntro {
+                //     ProfileView()
+                // } else {
+                //     ProfileIntroView()
+                // }
+                ComingSoonScreen()
             case .settings:
                 MainSettings()
             case .shop:
@@ -333,8 +324,6 @@ struct MainNavView: View {
             case let .activityDetail(activity): ActivityItemView(item: activity)
             case let .activityExplorer(activity): ActivityExplorerView(item: activity)
             case .buyBitcoin: BuyBitcoinView()
-            case .contacts: PaykitContactsView()
-            case .contactsIntro: ContactsIntroView()
             case .savingsWallet: SavingsWalletView()
             case .spendingWallet: SpendingWalletView()
             case .transferIntro: TransferIntroView()
@@ -354,9 +343,13 @@ struct MainNavView: View {
             case .savingsConfirm: SavingsConfirmView()
             case .savingsAdvanced: SavingsAdvancedView()
             case .savingsProgress: SavingsProgressView()
-            case .profile: ProfileView()
-            case .profileIntro: ProfileIntroView()
             case .scanner: ScannerScreen()
+
+            // Profile & Contacts
+            case .contacts: ComingSoonScreen()
+            case .contactsIntro: ComingSoonScreen()
+            case .profile: ComingSoonScreen()
+            case .profileIntro: ComingSoonScreen()
 
             // Shop
             case .shopIntro: ShopIntro()
@@ -409,29 +402,19 @@ struct MainNavView: View {
             case .connections: LightningConnectionsView()
             case let .connectionDetail(channelId): LightningConnectionDetailView(channelId: channelId)
             case let .closeConnection(channel: channel): CloseConnectionConfirmation(channel: channel)
-            
-            // Paykit routes
-            case .paykitDashboard: PaykitDashboardView()
-            case .paykitProfileEdit: ProfileEditView()
-            case .paykitContacts: PaykitContactsView()
-            case let .paykitContactDetail(contactId): ContactDetailView(contactId: contactId, viewModel: ContactsViewModel())
-            case .paykitContactDiscovery: ContactDiscoveryView()
-            case .paykitReceipts: PaykitReceiptsView()
-            case .paykitReceiptDetail(let receiptId): ReceiptDetailLookupView(receiptId: receiptId)
-            case .paykitSubscriptions: PaykitSubscriptionsView()
-            case .paykitAutoPay: PaykitAutoPayView()
-            case .paykitPaymentRequests: PaykitPaymentRequestsView()
-            case .paykitNoisePayment: NoisePaymentView()
-            case .paykitPrivateEndpoints: PrivateEndpointsView()
-            case .paykitRotationSettings: RotationSettingsView()
-            case .paykitSessionManagement: SessionManagementView()
             case .node: NodeStateView()
             case .electrumSettings: ElectrumSettingsScreen()
             case .rgsSettings: RgsSettingsScreen()
             case .addressViewer: AddressViewer()
+            case .sweep: SweepSettingsView().environmentObject(sweepViewModel)
+            case .sweepConfirm: SweepConfirmView().environmentObject(sweepViewModel)
+            case .sweepFeeRate: SweepFeeRateView().environmentObject(sweepViewModel)
+            case .sweepFeeCustom: SweepFeeCustomView().environmentObject(sweepViewModel)
+            case let .sweepSuccess(txid): SweepSuccessView(txid: txid).environmentObject(sweepViewModel)
 
             // Dev settings
             case .blocktankRegtest: BlocktankRegtestView()
+            case .ldkDebug: LdkDebugScreen()
             case .orders: ChannelOrders()
             case .logs: LogView()
             }
@@ -478,16 +461,5 @@ struct MainNavView: View {
             // Clear stored URI after processing
             clipboardUri = nil
         }
-    }
-    
-    /// Handle payment request deep links (disabled - PaykitIntegration excluded from build)
-    /// Format: paykit://payment-request?requestId=xxx&from=yyy
-    /// or: bitkit://payment-request?requestId=xxx&from=yyy
-    private func handlePaymentRequestDeepLink(url: URL, app: AppViewModel, sheets: SheetViewModel) async {
-        app.toast(
-            type: .warning,
-            title: "Paykit Not Available",
-            description: "Paykit integration is pending"
-        )
     }
 }

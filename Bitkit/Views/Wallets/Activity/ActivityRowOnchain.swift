@@ -86,8 +86,13 @@ struct ActivityRowOnchain: View {
             ActivityIcon(activity: .onchain(item), size: 40, isCpfpChild: isCpfpChild)
 
             VStack(alignment: .leading, spacing: 2) {
-                ActivityStatus(txType: item.txType, confirmed: item.confirmed, isTransfer: item.isTransfer, isCpfpChild: isCpfpChild)
-                    .lineLimit(1)
+                ActivityStatus(
+                    txType: item.txType,
+                    confirmed: item.confirmed,
+                    isTransfer: item.isTransfer,
+                    isCpfpChild: isCpfpChild
+                )
+                .lineLimit(1)
                 CaptionBText(description)
                     .lineLimit(1)
             }
@@ -95,7 +100,7 @@ struct ActivityRowOnchain: View {
 
             Spacer()
 
-            MoneyCell(sats: amount, prefix: amountPrefix)
+            MoneyCell(sats: amount, prefix: amountPrefix, enableHide: true)
         }
         .task {
             isCpfpChild = await CoreService.shared.activity.isCpfpChildTransaction(txId: item.txId)

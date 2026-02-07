@@ -1,5 +1,4 @@
 import BitkitCore
-import LocalAuthentication
 import SwiftUI
 
 struct LnurlPayConfirm: View {
@@ -16,23 +15,7 @@ struct LnurlPayConfirm: View {
     @State private var showingBiometricError = false
     @State private var biometricErrorMessage = ""
     @State private var comment = ""
-
-    private var biometryTypeName: String {
-        switch Env.biometryType {
-        case .touchID:
-            return t("security__bio_touch_id")
-        case .faceID:
-            return t("security__bio_face_id")
-        default:
-            return t("security__bio_face_id") // Default to Face ID
-        }
-    }
-
-    private var isBiometricAvailable: Bool {
-        let context = LAContext()
-        var error: NSError?
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
-    }
+    @FocusState private var isCommentFocused: Bool
 
     var uri: String {
         app.lnurlPayData!.uri
@@ -43,8 +26,12 @@ struct LnurlPayConfirm: View {
             SheetHeader(title: t("wallet__lnurl_p_title"), showBackButton: true)
 
             VStack(alignment: .leading) {
-                MoneyStack(sats: Int(wallet.sendAmountSats ?? app.lnurlPayData!.minSendable), showSymbol: true)
-                    .padding(.bottom, 32)
+                MoneyStack(
+                    sats: Int(wallet.sendAmountSats ?? app.lnurlPayData!.minSendable),
+                    showSymbol: true,
+                    testIdPrefix: "ReviewAmount"
+                )
+                .padding(.bottom, 32)
 
                 VStack(spacing: 0) {
                     VStack(alignment: .leading) {
@@ -77,7 +64,7 @@ struct LnurlPayConfirm: View {
 
                     Divider()
 
-                    if let commentAllowed = app.lnurlPayData?.commentAllowed {
+                    if let commentAllowed = app.lnurlPayData?.commentAllowed, commentAllowed > 0 {
                         VStack(alignment: .leading) {
                             CaptionMText(t("wallet__lnurl_pay_confirm__comment"))
                                 .padding(.bottom, 8)
@@ -85,8 +72,12 @@ struct LnurlPayConfirm: View {
                             TextField(
                                 t("wallet__lnurl_pay_confirm__comment_placeholder"),
                                 text: $comment,
-                                axis: .vertical
+                                axis: .vertical,
+                                testIdentifier: "CommentInput",
+                                submitLabel: .done
                             )
+                            .focused($isCommentFocused)
+                            .dismissKeyboardOnReturn(text: $comment, isFocused: $isCommentFocused)
                             .lineLimit(3 ... 3)
                             .onChange(of: comment) { newValue in
                                 let maxLength = Int(commentAllowed)
@@ -132,27 +123,27 @@ struct LnurlPayConfirm: View {
 
                 // Check if authentication is required for payments
                 if settings.requirePinForPayments && settings.pinEnabled {
-                    // Use biometrics if available and enabled, otherwise use PIN
-                    if settings.useBiometrics && isBiometricAvailable {
-                        let shouldProceed = try await requestBiometricAuthentication()
-                        if !shouldProceed {
-                            // User cancelled biometric authentication, throw error to reset SwipeButton
+                    if settings.useBiometrics && BiometricAuth.isAvailable {
+                        let result = await BiometricAuth.authenticate()
+                        switch result {
+                        case .success:
+                            break
+                        case .cancelled:
+                            throw CancellationError()
+                        case let .failed(message):
+                            biometricErrorMessage = message
+                            showingBiometricError = true
                             throw CancellationError()
                         }
-                        // Biometric authentication successful, continue with payment
                     } else {
-                        // Fall back to PIN
                         showPinCheck = true
                         let shouldProceed = try await waitForPinCheck()
                         if !shouldProceed {
-                            // User cancelled PIN entry, throw error to reset SwipeButton
                             throw CancellationError()
                         }
-                        // PIN verified, continue with payment
                     }
                 }
 
-                // Proceed with payment
                 try await performPayment()
             }
         }
@@ -207,66 +198,6 @@ struct LnurlPayConfirm: View {
         return try await withCheckedThrowingContinuation { continuation in
             pinCheckContinuation = continuation
         }
-    }
-
-    private func requestBiometricAuthentication() async throws -> Bool {
-        return try await withCheckedThrowingContinuation { continuation in
-            let context = LAContext()
-            var error: NSError?
-
-            // Check if biometric authentication is available
-            guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-                handleBiometricError(error)
-                continuation.resume(returning: false)
-                return
-            }
-
-            // Request biometric authentication
-            let reason = t(
-                "security__bio_confirm",
-                variables: ["biometricsName": biometryTypeName]
-            )
-
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, authenticationError in
-                DispatchQueue.main.async {
-                    if success {
-                        Logger.debug("Biometric authentication successful for payment", context: "SendConfirmationView")
-                        continuation.resume(returning: true)
-                    } else {
-                        if let error = authenticationError {
-                            handleBiometricError(error)
-                        }
-                        continuation.resume(returning: false)
-                    }
-                }
-            }
-        }
-    }
-
-    private func handleBiometricError(_ error: Error?) {
-        guard let error else { return }
-
-        let nsError = error as NSError
-
-        switch nsError.code {
-        case LAError.biometryNotAvailable.rawValue:
-            biometricErrorMessage = t("security__bio_not_available")
-            showingBiometricError = true
-        case LAError.biometryNotEnrolled.rawValue:
-            biometricErrorMessage = t("security__bio_not_available")
-            showingBiometricError = true
-        case LAError.userCancel.rawValue, LAError.userFallback.rawValue:
-            // User cancelled - don't show error, just keep current state
-            return
-        default:
-            biometricErrorMessage = t(
-                "security__bio_error_message",
-                variables: ["type": biometryTypeName]
-            )
-            showingBiometricError = true
-        }
-
-        Logger.error("Biometric authentication error: \(error)", context: "SendConfirmationView")
     }
 
     private func performPayment() async throws {

@@ -1,12 +1,10 @@
 import Foundation
 import LDKNode
 
-enum CustomServiceError: Error {
+enum CustomServiceError: LocalizedError {
     case nodeNotSetup
     case nodeNotStarted
     case onchainWalletNotInitialized
-    case ldkNodeSqliteAlreadyExists
-    case ldkToLdkNodeMigration
     case mnemonicNotFound
     case nodeStillRunning
     case onchainWalletStillRunning
@@ -14,14 +12,54 @@ enum CustomServiceError: Error {
     case regtestOnlyMethod
     case channelSizeExceedsMaximum
     case currencyRateUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .nodeNotSetup:
+            return "Node is not setup"
+        case .nodeNotStarted:
+            return "Node is not started"
+        case .onchainWalletNotInitialized:
+            return "Onchain wallet not created"
+        case .mnemonicNotFound:
+            return "Mnemonic not found"
+        case .nodeStillRunning:
+            return "Node is still running"
+        case .onchainWalletStillRunning:
+            return "Onchain wallet is still running"
+        case .invalidNodeSigningMessage:
+            return "Invalid node signing message"
+        case .regtestOnlyMethod:
+            return "Method only available in regtest environment"
+        case .channelSizeExceedsMaximum:
+            return "Channel size exceeds maximum allowed size"
+        case .currencyRateUnavailable:
+            return "Currency rate unavailable"
+        }
+    }
 }
 
-enum KeychainError: Error {
+enum KeychainError: LocalizedError {
     case failedToSave
     case failedToSaveAlreadyExists
     case failedToDelete
     case failedToLoad
     case keychainWipeNotAllowed
+
+    var errorDescription: String? {
+        switch self {
+        case .failedToSave:
+            return "Failed to save to keychain"
+        case .failedToSaveAlreadyExists:
+            return "Failed to save to keychain: item already exists"
+        case .failedToDelete:
+            return "Failed to delete from keychain"
+        case .failedToLoad:
+            return "Failed to load from keychain"
+        case .keychainWipeNotAllowed:
+            return "Keychain wipe not allowed"
+        }
+    }
 }
 
 enum BlocktankError_deprecated: Error {
@@ -78,12 +116,6 @@ struct AppError: LocalizedError {
             debugMessage = nil
         case .onchainWalletNotInitialized:
             message = "Onchain wallet not created"
-            debugMessage = nil
-        case .ldkNodeSqliteAlreadyExists:
-            message = "LDK-node SQLite file already exists"
-            debugMessage = nil
-        case .ldkToLdkNodeMigration:
-            message = "LDK to LDK-node migration issue"
             debugMessage = nil
         case .mnemonicNotFound:
             message = "Mnemonic not found"
@@ -361,6 +393,12 @@ struct AppError: LocalizedError {
             debugMessage = ldkMessage
         case let .CoinSelectionFailed(ldkMessage):
             message = "Coin selection failed"
+            debugMessage = ldkMessage
+        case let .InvalidMnemonic(ldkMessage):
+            message = "Invalid mnemonic"
+            debugMessage = ldkMessage
+        case let .BackgroundSyncNotEnabled(ldkMessage):
+            message = "Background sync not enabled"
             debugMessage = ldkMessage
         }
         Logger.error("\(message) [\(debugMessage ?? "")]", context: "ldk-node error")

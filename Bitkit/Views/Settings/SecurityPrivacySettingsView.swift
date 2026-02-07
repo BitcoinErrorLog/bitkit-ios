@@ -103,16 +103,7 @@ struct SecurityPrivacySettingsView: View {
                         }
                         .accessibilityIdentifier("EnablePinForPayments")
 
-                        // Auto-Pay settings link
-                    NavigationLink(value: Route.paykitAutoPay) {
-                        SettingsListLabel(
-                            title: "Auto-Pay Settings",
-                            iconName: "transfer"
-                        )
-                    }
-                    .accessibilityIdentifier("AutoPaySettings")
-
-                    if isBiometricAvailable {
+                        if isBiometricAvailable {
                             // Biometrics toggle with custom handling
                             SettingsListLabel(
                                 title: t("settings__security__use_bio", variables: ["biometryTypeName": biometryTypeName]),

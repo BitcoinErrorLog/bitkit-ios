@@ -2,11 +2,25 @@ import SwiftUI
 
 struct SendEnterManuallyView: View {
     @EnvironmentObject var app: AppViewModel
+    @EnvironmentObject var wallet: WalletViewModel
     @EnvironmentObject var currency: CurrencyViewModel
     @EnvironmentObject var settings: SettingsViewModel
     @Binding var navigationPath: [SendRoute]
-    @State private var text = ""
     @FocusState private var isTextEditorFocused: Bool
+
+    private var manualEntryBinding: Binding<String> {
+        Binding(
+            get: { app.manualEntryInput },
+            set: { newValue in
+                app.manualEntryInput = newValue
+                app.validateManualEntryInput(
+                    newValue,
+                    savingsBalanceSats: wallet.spendableOnchainBalanceSats,
+                    spendingBalanceSats: wallet.maxSendLightningSats
+                )
+            }
+        )
+    }
 
     var body: some View {
         VStack {
@@ -16,12 +30,12 @@ struct SendEnterManuallyView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ZStack(alignment: .topLeading) {
-                if text.isEmpty {
+                if app.manualEntryInput.isEmpty {
                     TitleText(t("wallet__send_address_placeholder"), textColor: .textSecondary)
                         .padding(20)
                 }
 
-                TextEditor(text: $text)
+                TextEditor(text: manualEntryBinding)
                     .focused($isTextEditorFocused)
                     .padding(EdgeInsets(top: -10, leading: -5, bottom: -5, trailing: -5))
                     .padding(20)
@@ -31,8 +45,10 @@ struct SendEnterManuallyView: View {
                     .foregroundColor(.textPrimary)
                     .accentColor(.brandAccent)
                     .submitLabel(.done)
-                    .dismissKeyboardOnReturn(text: $text, isFocused: $isTextEditorFocused)
-                    .accessibilityValue(text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .dismissKeyboardOnReturn(text: manualEntryBinding, isFocused: $isTextEditorFocused)
+                    .accessibilityValue(app.manualEntryInput)
                     .accessibilityIdentifier("RecipientInput")
             }
             .background(Color.white06)
@@ -40,7 +56,7 @@ struct SendEnterManuallyView: View {
 
             Spacer(minLength: 16)
 
-            CustomButton(title: "Continue", isDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+            CustomButton(title: "Continue", isDisabled: !app.isManualEntryInputValid) {
                 await handleContinue()
             }
             .buttonBottomPadding(isFocused: isTextEditorFocused)
@@ -56,17 +72,20 @@ struct SendEnterManuallyView: View {
     }
 
     func handleContinue() async {
-        let uri = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let uri = app.normalizeManualEntry(app.manualEntryInput)
+
+        guard !uri.isEmpty, app.isManualEntryInputValid else { return }
 
         do {
             try await app.handleScannedData(uri)
 
-            let route = PaymentNavigationHelper.appropriateSendRoute(
+            if let route = PaymentNavigationHelper.appropriateSendRoute(
                 app: app,
                 currency: currency,
                 settings: settings
-            )
-            navigationPath.append(route)
+            ) {
+                navigationPath.append(route)
+            }
         } catch {
             Logger.error(error, context: "Failed to read data from clipboard")
             app.toast(error)
@@ -77,5 +96,6 @@ struct SendEnterManuallyView: View {
 #Preview {
     SendEnterManuallyView(navigationPath: .constant([]))
         .environmentObject(AppViewModel())
+        .environmentObject(WalletViewModel())
         .preferredColorScheme(.dark)
 }

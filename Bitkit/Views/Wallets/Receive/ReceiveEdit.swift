@@ -26,16 +26,19 @@ struct ReceiveEdit: View {
             SheetHeader(title: t("wallet__receive_specify"), showBackButton: true)
 
             VStack(alignment: .leading, spacing: 0) {
-                NumberPadTextField(viewModel: amountViewModel, isFocused: isAmountInputFocused)
-                    .padding(.bottom, isAmountInputFocused ? 0 : 32)
-                    .onTapGesture {
-                        if isAmountInputFocused {
-                            amountViewModel.togglePrimaryDisplay(currency: currency)
-                        } else {
-                            isAmountInputFocused = true
-                        }
+                NumberPadTextField(
+                    viewModel: amountViewModel,
+                    isFocused: isAmountInputFocused,
+                    testIdentifier: "ReceiveNumberPadTextField"
+                )
+                .padding(.bottom, isAmountInputFocused ? 0 : 32)
+                .onTapGesture {
+                    if isAmountInputFocused {
+                        amountViewModel.togglePrimaryDisplay(currency: currency)
+                    } else {
+                        isAmountInputFocused = true
                     }
-                    .accessibilityIdentifier("ReceiveNumberPadTextField")
+                }
 
                 if !isAmountInputFocused {
                     CaptionMText(t("wallet__note"))
@@ -174,10 +177,7 @@ struct ReceiveEdit: View {
     private func needsAdditionalCjit() -> Bool {
         let isGeoBlocked = GeoService.shared.isGeoBlocked
         let minimumAmount = blocktank.minCjitSats ?? 0
-        // When geoblocked, only count non-LSP inbound capacity
-        let inboundCapacity = isGeoBlocked
-            ? (wallet.totalNonLspInboundLightningSats ?? 0)
-            : (wallet.totalInboundLightningSats ?? 0)
+        let inboundCapacity = wallet.totalInboundLightningSats ?? 0
         let invoiceAmount = amountViewModel.amountSats
 
         // Calculate maxClientBalance using TransferViewModel

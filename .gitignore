@@ -21,6 +21,6 @@ buildServer.json
 # VSCode
 .vscode/
 
-# Large static libraries from XCFrameworks (rebuild from Rust sources)
-# These need to be built locally from paykit-rs and pubky-noise repos
-Bitkit/PaykitIntegration/Frameworks/**/*.a
+# AIs
+.ai/
+.claude/*.local*

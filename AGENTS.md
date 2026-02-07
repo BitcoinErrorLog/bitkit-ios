@@ -15,30 +15,55 @@ This app integrates with:
 - **Electrum/Esplora** for blockchain data
 - **Blocktank** for Lightning channel services
 
-## Git and GitHub Rules (CRITICAL)
-
-**NEVER create, submit, or push pull requests (PRs) to any GitHub organization except BitcoinErrorLog.**
-
-- NEVER push code, commits, or branches to synonymdev or any other organization
-- ONLY push to remotes that point to BitcoinErrorLog (e.g., `fork` remote pointing to `github.com/BitcoinErrorLog/*`)
-- When merging PRs from upstream (synonymdev), only merge locally and push to BitcoinErrorLog forks
-- NEVER use `gh pr create`, `gh pr comment`, or any GitHub CLI commands that would create/modify PRs outside BitcoinErrorLog
-- If unsure about a Git operation, verify the remote URL points to BitcoinErrorLog before pushing
-- Always check `git remote -v` before pushing to ensure you're pushing to the correct organization
-
 ## Build & Development Commands
 
 ### Building
 ```bash
 # Standard build - Open Bitkit.xcodeproj in Xcode and build
 
-# E2E test build (uses local Electrum backend)
+# E2E test build (uses local Electrum backend by default)
 xcodebuild -workspace Bitkit.xcodeproj/project.xcworkspace \
   -scheme Bitkit \
   -configuration Debug \
   SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) E2E_BUILD' \
   build
+
+# E2E test build with network Electrum and regtest (Info.plist build setting)
+E2E_BACKEND=network E2E_NETWORK=regtest \
+  xcodebuild -workspace Bitkit.xcodeproj/project.xcworkspace \
+  -scheme Bitkit \
+  -configuration Debug \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) E2E_BUILD' \
+  build
 ```
+
+### Running on Physical Device
+
+**From Terminal:**
+```bash
+# List connected devices
+xcrun devicectl list devices
+
+# Set device ID from the list above
+DEVICE_ID="<device-identifier-from-list>"
+
+# Build for device
+xcodebuild -project Bitkit.xcodeproj -scheme Bitkit -configuration Debug \
+  -destination 'generic/platform=iOS' -derivedDataPath build build
+
+# Install app on device
+xcrun devicectl device install app --device $DEVICE_ID build/Build/Products/Debug-iphoneos/Bitkit.app
+
+# Launch app with console output
+xcrun devicectl device process launch --device $DEVICE_ID to.bitkit --console
+```
+
+**From Xcode:**
+1. Open `Bitkit.xcodeproj`
+2. Select your device from the destination dropdown
+3. Press Cmd+R to build and run
+
+**Note:** The project includes a "Remove Static Framework Stubs" build phase that removes empty LDKNodeFFI.framework from the app bundle. This is needed because LDKNodeFFI is a static library (linked at compile time), not a dynamic framework.
 
 ### Code Formatting
 ```bash
@@ -208,7 +233,7 @@ New feature (`TransferTrackingManager`) tracks pending transfers to handle edge 
 - The app currently runs on **regtest only** (see `LightningService.swift:92` guard)
 - VSS (Versioned Storage Service) authentication is not yet implemented
 - Electrum/Esplora server URLs are configurable via `Env`
-- E2E builds use local Electrum backend via `E2E_BUILD` compilation flag
+- E2E builds use local Electrum backend via `E2E_BUILD` compilation flag (override with `E2E_BACKEND`/`E2E_NETWORK` build settings)
 
 ### Error Handling
 

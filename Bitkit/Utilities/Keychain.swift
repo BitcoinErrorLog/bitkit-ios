@@ -7,8 +7,6 @@ enum KeychainEntryType {
     case pushNotificationPrivateKey // For secp256k1 shared secret when decrypting push payload
     case securityPin
 
-    // TODO: allow for reading keychain entries from RN wallet and then migrate them if needed
-
     var storageKey: String {
         switch self {
         case let .bip39Mnemonic(index):
@@ -30,7 +28,8 @@ class Keychain {
         let query =
             [
                 kSecClass as String: kSecClassGenericPassword as String,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock as String,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String,
+                kSecAttrSynchronizable as String: false,
                 kSecAttrAccount as String: key.storageKey,
                 kSecValueData as String: data,
                 kSecAttrAccessGroup as String: Env.keychainGroup,

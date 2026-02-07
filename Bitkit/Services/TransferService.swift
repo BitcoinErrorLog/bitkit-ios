@@ -7,15 +7,18 @@ class TransferService {
     private let storage: TransferStorage
     private let lightningService: LightningService
     private let blocktankService: BlocktankService
+    private let coreService: CoreService
 
     init(
         storage: TransferStorage = TransferStorage.shared,
         lightningService: LightningService,
-        blocktankService: BlocktankService
+        blocktankService: BlocktankService,
+        coreService: CoreService = .shared
     ) {
         self.storage = storage
         self.lightningService = lightningService
         self.blocktankService = blocktankService
+        self.coreService = coreService
     }
 
     /// Get all active transfers as a publisher
@@ -30,7 +33,10 @@ class TransferService {
         amountSats: UInt64,
         channelId: String? = nil,
         fundingTxId: String? = nil,
-        lspOrderId: String? = nil
+        lspOrderId: String? = nil,
+        claimableAtHeight: UInt32? = nil,
+        txTotalSats: UInt64? = nil,
+        preTransferOnchainSats: UInt64? = nil
     ) async throws -> String {
         // When geoblocked, block transfers to spending that involve LSP (Blocktank)
         // toSpending with lspOrderId means it's a Blocktank LSP channel order
@@ -55,7 +61,10 @@ class TransferService {
             lspOrderId: lspOrderId,
             isSettled: false,
             createdAt: createdAt,
-            settledAt: nil
+            settledAt: nil,
+            claimableAtHeight: claimableAtHeight,
+            txTotalSats: txTotalSats,
+            preTransferOnchainSats: preTransferOnchainSats
         )
 
         try storage.insert(transfer)
@@ -80,13 +89,14 @@ class TransferService {
         }
 
         // Get channels from LightningService (returns [ChannelDetails]? directly)
-        guard let channels = lightningService.channels else {
+        let channels = await MainActor.run { lightningService.channels }
+        guard let channels else {
             Logger.error("Failed to get channels for transfer sync", context: "TransferService")
             return
         }
 
         // Get balances from LightningService (returns BalanceDetails? directly)
-        let balances = lightningService.balances
+        let balances = await MainActor.run { lightningService.balances }
 
         Logger.debug("Syncing \(activeTransfers.count) active transfers", context: "TransferService")
 
@@ -95,6 +105,26 @@ class TransferService {
 
         for transfer in toSpending {
             if let channelId = try await resolveChannelId(for: transfer, channels: channels) {
+                // Update transfer with channelId if not set yet
+                if transfer.channelId == nil {
+                    let updatedTransfer = Transfer(
+                        id: transfer.id,
+                        type: transfer.type,
+                        amountSats: transfer.amountSats,
+                        channelId: channelId,
+                        fundingTxId: transfer.fundingTxId,
+                        lspOrderId: transfer.lspOrderId,
+                        isSettled: transfer.isSettled,
+                        createdAt: transfer.createdAt,
+                        settledAt: transfer.settledAt,
+                        claimableAtHeight: transfer.claimableAtHeight,
+                        txTotalSats: transfer.txTotalSats,
+                        preTransferOnchainSats: transfer.preTransferOnchainSats
+                    )
+                    try storage.update(updatedTransfer)
+                    Logger.debug("Updated transfer \(transfer.id) with channelId: \(channelId)", context: "TransferService")
+                }
+
                 // Check if channel is ready (usable)
                 if let channel = channels.first(where: { $0.channelId.description == channelId }),
                    channel.isUsable
@@ -119,12 +149,26 @@ class TransferService {
         for transfer in toSavings {
             if let channelId = try await resolveChannelId(for: transfer, channels: channels) {
                 let hasBalance = balances?.lightningBalances.contains(where: { balance in
-                    balance.channelId == channelId
+                    balance.channelIdString == channelId
                 }) ?? false
 
                 if !hasBalance {
-                    try await markSettled(id: transfer.id)
-                    Logger.debug("Channel \(channelId) balance swept, settled transfer: \(transfer.id)", context: "TransferService")
+                    // For force closes, only settle when we've detected the on-chain sweep transaction.
+                    // This prevents a balance discrepancy where the transfer is removed but the
+                    // sweep balance hasn't appeared in the on-chain wallet yet.
+                    if transfer.type == .forceClose {
+                        let hasOnchainActivity = await coreService.activity.hasOnchainActivityForChannel(channelId: channelId)
+                        if hasOnchainActivity {
+                            try await markSettled(id: transfer.id)
+                            Logger.debug("Force close sweep detected, settled transfer: \(transfer.id)", context: "TransferService")
+                        } else {
+                            Logger.debug("Force close awaiting sweep detection for transfer: \(transfer.id)", context: "TransferService")
+                        }
+                    } else {
+                        // For coop closes and other types, settle immediately when balance is gone
+                        try await markSettled(id: transfer.id)
+                        Logger.debug("Channel \(channelId) balance swept, settled transfer: \(transfer.id)", context: "TransferService")
+                    }
                 }
             }
         }

@@ -71,6 +71,7 @@ struct SpendingAmount: View {
             ) {
                 await onContinue()
             }
+            .accessibilityIdentifier("SpendingAmountContinue")
         }
         .navigationBarHidden(true)
         .padding(.horizontal, 16)
@@ -96,17 +97,32 @@ struct SpendingAmount: View {
                 let quarter = UInt64(wallet.spendableOnchainBalanceSats) / 4
                 amountViewModel.updateFromSats(min(quarter, max), currency: currency)
             }
+            .accessibilityIdentifier("SpendingAmountQuarter")
 
             NumberPadActionButton(text: t("common__max")) {
                 guard let max = maxTransferAmount else { return }
                 amountViewModel.updateFromSats(max, currency: currency)
             }
+            .accessibilityIdentifier("SpendingAmountMax")
         }
     }
 
     private func onContinue() async {
         isLoading = true
         defer { isLoading = false }
+
+        // Wait for node to be running if it's not already
+        if wallet.nodeLifecycleState != .running {
+            let isReady = await wallet.waitForNodeToRun(timeoutSeconds: 30.0)
+            guard isReady else {
+                app.toast(
+                    type: .error,
+                    title: "Lightning node not ready",
+                    description: "Please wait for the Lightning node to start and try again."
+                )
+                return
+            }
+        }
 
         do {
             let values = transfer.calculateTransferValues(clientBalanceSat: amountSats, blocktankInfo: blocktank.info)
@@ -116,7 +132,8 @@ struct SpendingAmount: View {
             transfer.onOrderCreated(order: order)
             navigation.navigate(.spendingConfirm(order: order))
         } catch {
-            app.toast(error)
+            let appError = AppError(error: error)
+            app.toast(type: .error, title: appError.message, description: appError.debugMessage)
         }
     }
 
@@ -146,20 +163,33 @@ struct SpendingAmount: View {
             }
             let fastFeeRate = TransactionSpeed.fast.getFeeRate(from: feeRates)
 
+            // Calculate max sendable amount (balance minus transaction fee)
             let calculatedAvailableAmount = try await wallet.calculateMaxSendableAmount(
                 address: address,
                 satsPerVByte: fastFeeRate
             )
 
-            let values = transfer.calculateTransferValues(clientBalanceSat: calculatedAvailableAmount, blocktankInfo: info)
-
-            let feeEstimate = try await blocktank.estimateOrderFee(
+            // First pass: estimate with calculatedAvailableAmount to get approximate clientBalance
+            let values1 = transfer.calculateTransferValues(clientBalanceSat: calculatedAvailableAmount, blocktankInfo: info)
+            let lspBalance1 = max(values1.defaultLspBalance, values1.minLspBalance)
+            let feeEstimate1 = try await blocktank.estimateOrderFee(
                 clientBalance: calculatedAvailableAmount,
-                lspBalance: values.maxLspBalance
+                lspBalance: lspBalance1
             )
+            let lspFees1 = feeEstimate1.networkFeeSat + feeEstimate1.serviceFeeSat
+            let approxClientBalance = UInt64(max(0, Int64(calculatedAvailableAmount) - Int64(lspFees1)))
 
-            let feeMaximum = UInt64(max(0, Int64(calculatedAvailableAmount) - Int64(feeEstimate.feeSat)))
-            let result = min(values.maxClientBalance, feeMaximum)
+            // Second pass: recalculate lspBalance with actual clientBalance (same as onContinue will use)
+            // This ensures fee estimation matches the actual order creation
+            let values2 = transfer.calculateTransferValues(clientBalanceSat: approxClientBalance, blocktankInfo: info)
+            let lspBalance2 = max(values2.defaultLspBalance, values2.minLspBalance)
+            let feeEstimate2 = try await blocktank.estimateOrderFee(
+                clientBalance: approxClientBalance,
+                lspBalance: lspBalance2
+            )
+            let lspFees = feeEstimate2.networkFeeSat + feeEstimate2.serviceFeeSat
+            let maxClientBalance = UInt64(max(0, Int64(calculatedAvailableAmount) - Int64(lspFees)))
+            let result = min(values2.maxClientBalance, maxClientBalance)
 
             await MainActor.run {
                 availableAmount = calculatedAvailableAmount

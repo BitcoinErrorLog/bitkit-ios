@@ -5,11 +5,11 @@ enum SheetID: String, CaseIterable {
     case appUpdate
     case backup
     case boost
+    case connectionClosed
     case forceTransfer
     case forgotPin
     case gift
     case highBalance
-    case incomingPayment
     case lnurlAuth
     case lnurlWithdraw
     case notifications
@@ -19,6 +19,7 @@ enum SheetID: String, CaseIterable {
     case scanner
     case security
     case send
+    case sweepPrompt
     case tagFilter
     case dateRangeSelector
 }
@@ -26,11 +27,6 @@ enum SheetID: String, CaseIterable {
 struct SheetConfiguration {
     let id: SheetID
     let data: Any?
-}
-
-struct IncomingPaymentSheetItem: Identifiable {
-    let id = UUID()
-    let paymentHash: String?
 }
 
 class SheetViewModel: ObservableObject {
@@ -44,6 +40,7 @@ class SheetViewModel: ObservableObject {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
                 guard let self else { return }
+                Logger.debug("Showing sheet \(id.rawValue) after delay", context: "SheetViewModel")
                 activeSheetConfiguration = SheetConfiguration(id: id, data: data)
                 playHaptics(for: id)
 
@@ -54,6 +51,7 @@ class SheetViewModel: ObservableObject {
             }
         } else {
             // If no sheet is open, show the new sheet immediately
+            Logger.debug("Showing sheet \(id.rawValue)", context: "SheetViewModel")
             activeSheetConfiguration = SheetConfiguration(id: id, data: data)
             playHaptics(for: id)
 
@@ -64,13 +62,33 @@ class SheetViewModel: ObservableObject {
         }
     }
 
-    func hideSheet() {
+    func hideSheet(reason: String? = nil, file: String = #file, function: String = #function, line: Int = #line) {
+        if let config = activeSheetConfiguration {
+            let fallback = "\(URL(fileURLWithPath: file).lastPathComponent):\(line) \(function)"
+            let reasonText = " reason: \(reason ?? fallback)"
+            Logger.debug("Hiding sheet \(config.id.rawValue)\(reasonText)", context: "SheetViewModel")
+        } else {
+            let fallback = "\(URL(fileURLWithPath: file).lastPathComponent):\(line) \(function)"
+            let reasonText = " reason: \(reason ?? fallback)"
+            Logger.debug("hideSheet called with no active sheet\(reasonText)", context: "SheetViewModel")
+        }
         activeSheetConfiguration = nil
 
         // Notify timed sheet manager
         Task { @MainActor in
             TimedSheetManager.shared.onSheetDismissed()
         }
+    }
+
+    func hideSheetIfActive(_ id: SheetID, reason: String? = nil, file: String = #file, function: String = #function, line: Int = #line) {
+        guard activeSheetConfiguration?.id == id else {
+            let fallback = "\(URL(fileURLWithPath: file).lastPathComponent):\(line) \(function)"
+            let reasonText = " reason: \(reason ?? fallback)"
+            let activeId = activeSheetConfiguration?.id.rawValue ?? "none"
+            Logger.debug("hideSheetIfActive skipped for \(id.rawValue) (active: \(activeId))\(reasonText)", context: "SheetViewModel")
+            return
+        }
+        hideSheet(reason: reason, file: file, function: function, line: line)
     }
 
     var isAnySheetOpen: Bool {
@@ -137,6 +155,18 @@ class SheetViewModel: ObservableObject {
         }
     }
 
+    var connectionClosedSheetItem: ConnectionClosedSheetItem? {
+        get {
+            guard let config = activeSheetConfiguration, config.id == .connectionClosed else { return nil }
+            return ConnectionClosedSheetItem()
+        }
+        set {
+            if newValue == nil {
+                activeSheetConfiguration = nil
+            }
+        }
+    }
+
     var forgotPinSheetItem: ForgotPinSheetItem? {
         get {
             guard let config = activeSheetConfiguration, config.id == .forgotPin else { return nil }
@@ -167,19 +197,6 @@ class SheetViewModel: ObservableObject {
         get {
             guard let config = activeSheetConfiguration, config.id == .highBalance else { return nil }
             return HighBalanceSheetItem()
-        }
-        set {
-            if newValue == nil {
-                activeSheetConfiguration = nil
-            }
-        }
-    }
-
-    var incomingPaymentSheetItem: IncomingPaymentSheetItem? {
-        get {
-            guard let config = activeSheetConfiguration, config.id == .incomingPayment else { return nil }
-            let paymentHash = config.data as? String
-            return IncomingPaymentSheetItem(paymentHash: paymentHash)
         }
         set {
             if newValue == nil {
@@ -312,6 +329,18 @@ class SheetViewModel: ObservableObject {
         get {
             guard let config = activeSheetConfiguration, config.id == .forceTransfer else { return nil }
             return ForceTransferSheetItem()
+        }
+        set {
+            if newValue == nil {
+                activeSheetConfiguration = nil
+            }
+        }
+    }
+
+    var sweepPromptSheetItem: SweepPromptSheetItem? {
+        get {
+            guard let config = activeSheetConfiguration, config.id == .sweepPrompt else { return nil }
+            return SweepPromptSheetItem()
         }
         set {
             if newValue == nil {

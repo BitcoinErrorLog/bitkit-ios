@@ -1,5 +1,4 @@
 import BitkitCore
-import LocalAuthentication
 import SwiftUI
 
 struct SendConfirmationView: View {
@@ -18,6 +17,7 @@ struct SendConfirmationView: View {
     @State private var biometricErrorMessage = ""
     @State private var transactionFee: Int = 0
     @State private var routingFee: Int = 0
+    @State private var shouldUseSendAll: Bool = false
 
     // Warning system
     private enum WarningType: String, CaseIterable {
@@ -56,21 +56,16 @@ struct SendConfirmationView: View {
     @State private var pendingWarnings: [WarningType] = []
     @State private var warningContinuation: CheckedContinuation<Bool, Error>?
 
-    private var biometryTypeName: String {
-        switch Env.biometryType {
-        case .touchID:
-            return t("security__bio_touch_id")
-        case .faceID:
-            return t("security__bio_face_id")
-        default:
-            return t("security__bio_face_id") // Default to Face ID
+    private var canEditAmount: Bool {
+        guard app.selectedWalletToPayFrom == .lightning else {
+            return true
         }
-    }
 
-    private var isBiometricAvailable: Bool {
-        let context = LAContext()
-        var error: NSError?
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        guard let invoice = app.scannedLightningInvoice else {
+            return true
+        }
+
+        return invoice.amountSatoshis == 0
     }
 
     var body: some View {
@@ -79,12 +74,22 @@ struct SendConfirmationView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 if app.selectedWalletToPayFrom == .lightning, let invoice = app.scannedLightningInvoice {
-                    MoneyStack(sats: Int(wallet.sendAmountSats ?? invoice.amountSatoshis), showSymbol: true, testIdPrefix: "ReviewAmount")
-                        .padding(.bottom, 44)
+                    MoneyStack(
+                        sats: Int(wallet.sendAmountSats ?? invoice.amountSatoshis),
+                        showSymbol: true,
+                        testIdPrefix: "ReviewAmount",
+                        onTap: navigateToAmount
+                    )
+                    .padding(.bottom, 44)
                     lightningView(invoice)
                 } else if app.selectedWalletToPayFrom == .onchain, let invoice = app.scannedOnchainInvoice {
-                    MoneyStack(sats: Int(wallet.sendAmountSats ?? invoice.amountSatoshis), showSymbol: true, testIdPrefix: "ReviewAmount")
-                        .padding(.bottom, 44)
+                    MoneyStack(
+                        sats: Int(wallet.sendAmountSats ?? invoice.amountSatoshis),
+                        showSymbol: true,
+                        testIdPrefix: "ReviewAmount",
+                        onTap: navigateToAmount
+                    )
+                    .padding(.bottom, 44)
                     onchainView(invoice)
                 }
             }
@@ -103,7 +108,10 @@ struct SendConfirmationView: View {
 
             Spacer()
 
-            SwipeButton(title: t("wallet__send_swipe"), accentColor: .greenAccent) {
+            SwipeButton(
+                title: t("wallet__send_swipe"),
+                accentColor: app.selectedWalletToPayFrom == .onchain ? .brandAccent : .purpleAccent
+            ) {
                 // Validate payment and show warnings if needed
                 let warnings = await validatePayment()
                 if !warnings.isEmpty {
@@ -115,28 +123,27 @@ struct SendConfirmationView: View {
 
                 // Check if authentication is required for payments
                 if settings.requirePinForPayments && settings.pinEnabled {
-                    // Use biometrics if available and enabled, otherwise use PIN
-                    if settings.useBiometrics && isBiometricAvailable {
-                        let shouldProceed = try await requestBiometricAuthentication()
-                        if !shouldProceed {
-                            // User cancelled biometric authentication, throw error to reset SwipeButton
-
+                    if settings.useBiometrics && BiometricAuth.isAvailable {
+                        let result = await BiometricAuth.authenticate()
+                        switch result {
+                        case .success:
+                            break
+                        case .cancelled:
+                            throw CancellationError()
+                        case let .failed(message):
+                            biometricErrorMessage = message
+                            showingBiometricError = true
                             throw CancellationError()
                         }
-                        // Biometric authentication successful, continue with payment
                     } else {
-                        // Fall back to PIN
                         showPinCheck = true
                         let shouldProceed = try await waitForPinCheck()
                         if !shouldProceed {
-                            // User cancelled PIN entry, throw error to reset SwipeButton
                             throw CancellationError()
                         }
-                        // PIN verified, continue with payment
                     }
                 }
 
-                // Proceed with payment
                 try await performPayment()
             }
         }
@@ -204,66 +211,6 @@ struct SendConfirmationView: View {
         }
     }
 
-    private func requestBiometricAuthentication() async throws -> Bool {
-        return try await withCheckedThrowingContinuation { continuation in
-            let context = LAContext()
-            var error: NSError?
-
-            // Check if biometric authentication is available
-            guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-                handleBiometricError(error)
-                continuation.resume(returning: false)
-                return
-            }
-
-            // Request biometric authentication
-            let reason = t(
-                "security__bio_confirm",
-                variables: ["biometricsName": biometryTypeName]
-            )
-
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, authenticationError in
-                DispatchQueue.main.async {
-                    if success {
-                        Logger.debug("Biometric authentication successful for payment", context: "SendConfirmationView")
-                        continuation.resume(returning: true)
-                    } else {
-                        if let error = authenticationError {
-                            handleBiometricError(error)
-                        }
-                        continuation.resume(returning: false)
-                    }
-                }
-            }
-        }
-    }
-
-    private func handleBiometricError(_ error: Error?) {
-        guard let error else { return }
-
-        let nsError = error as NSError
-
-        switch nsError.code {
-        case LAError.biometryNotAvailable.rawValue:
-            biometricErrorMessage = t("security__bio_not_available")
-            showingBiometricError = true
-        case LAError.biometryNotEnrolled.rawValue:
-            biometricErrorMessage = t("security__bio_not_available")
-            showingBiometricError = true
-        case LAError.userCancel.rawValue, LAError.userFallback.rawValue:
-            // User cancelled - don't show error, just keep current state
-            return
-        default:
-            biometricErrorMessage = t(
-                "security__bio_error_message",
-                variables: ["type": biometryTypeName]
-            )
-            showingBiometricError = true
-        }
-
-        Logger.error("Biometric authentication error: \(error)", context: "SendConfirmationView")
-    }
-
     private func performPayment() async throws {
         var createdMetadataPaymentId: String? = nil
 
@@ -285,7 +232,9 @@ struct SendConfirmationView: View {
                 navigationPath.append(.success(paymentHash))
             } else if app.selectedWalletToPayFrom == .onchain, let invoice = app.scannedOnchainInvoice {
                 let amount = wallet.sendAmountSats ?? invoice.amountSatoshis
-                let txid = try await wallet.send(address: invoice.address, sats: amount, isMaxAmount: wallet.isMaxAmountSend)
+                // Use sendAll if explicitly MAX or if change would be dust
+                let useMaxAmount = wallet.isMaxAmountSend || shouldUseSendAll
+                let txid = try await wallet.send(address: invoice.address, sats: amount, isMaxAmount: useMaxAmount)
 
                 // Create pre-activity metadata for tags and activity address
                 await createPreActivityMetadata(paymentId: txid, address: invoice.address, txId: txid, feeRate: wallet.selectedFeeRateSatsPerVByte)
@@ -421,12 +370,10 @@ struct SendConfirmationView: View {
     @ViewBuilder
     func onchainView(_ invoice: OnChainInvoice) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                CaptionMText(t("wallet__send_to"))
-                BodySSBText(invoice.address.ellipsis(maxLength: 20))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+            editableInvoiceSection(
+                title: t("wallet__send_to"),
+                value: invoice.address
+            )
             .padding(.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -487,14 +434,12 @@ struct SendConfirmationView: View {
     }
 
     @ViewBuilder
-    func lightningView(_: LightningInvoice) -> some View {
+    func lightningView(_ invoice: LightningInvoice) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                CaptionMText(t("wallet__send_invoice"))
-                BodySSBText(app.scannedLightningInvoice?.bolt11.ellipsis(maxLength: 20) ?? "")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+            editableInvoiceSection(
+                title: t("wallet__send_invoice"),
+                value: invoice.bolt11
+            )
             .padding(.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -565,6 +510,51 @@ struct SendConfirmationView: View {
         }
     }
 
+    @ViewBuilder
+    private func editableInvoiceSection(title: String, value: String) -> some View {
+        Button {
+            navigateToManual(with: value)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                CaptionMText(title)
+                BodySSBText(value.ellipsis(maxLength: 20))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ReviewUri")
+    }
+
+    private func navigateToManual(with value: String) {
+        guard !value.isEmpty else { return }
+        app.manualEntryInput = value
+        app.validateManualEntryInput(
+            value,
+            savingsBalanceSats: wallet.spendableOnchainBalanceSats,
+            spendingBalanceSats: wallet.maxSendLightningSats
+        )
+
+        if let manualIndex = navigationPath.firstIndex(of: .manual) {
+            navigationPath = Array(navigationPath.prefix(manualIndex + 1))
+        } else {
+            navigationPath = [.manual]
+        }
+    }
+
+    private func navigateToAmount() {
+        guard canEditAmount else { return }
+
+        if let amountIndex = navigationPath.lastIndex(of: .amount) {
+            navigationPath = Array(navigationPath.prefix(amountIndex + 1))
+        } else {
+            if let confirmIndex = navigationPath.lastIndex(of: .confirm) {
+                navigationPath = Array(navigationPath.prefix(confirmIndex))
+            }
+            navigationPath.append(.amount)
+        }
+    }
+
     private func calculateTransactionFee() async {
         guard app.selectedWalletToPayFrom == .onchain else {
             return
@@ -578,20 +568,46 @@ struct SendConfirmationView: View {
         }
 
         do {
-            let fee = try await wallet.calculateTotalFee(
+            let lightningService = LightningService.shared
+            let spendableBalance = UInt64(wallet.spendableOnchainBalanceSats)
+
+            // Calculate fee for sendAll to check if change would be dust
+            let allUtxos = try await lightningService.listSpendableOutputs()
+            let sendAllFee = try await wallet.calculateTotalFee(
                 address: address,
-                amountSats: amountSats,
+                amountSats: spendableBalance,
                 satsPerVByte: feeRate,
-                utxosToSpend: wallet.selectedUtxos
+                utxosToSpend: allUtxos
             )
 
-            await MainActor.run {
-                transactionFee = Int(fee)
+            let expectedChange = Int64(spendableBalance) - Int64(amountSats) - Int64(sendAllFee)
+            let useSendAll = expectedChange >= 0 && expectedChange < Int64(Env.dustLimit)
+
+            if useSendAll {
+                // Change would be dust - use sendAll and add dust to fee
+                await MainActor.run {
+                    transactionFee = Int(sendAllFee)
+                    shouldUseSendAll = true
+                }
+            } else {
+                // Normal send with change output
+                let fee = try await wallet.calculateTotalFee(
+                    address: address,
+                    amountSats: amountSats,
+                    satsPerVByte: feeRate,
+                    utxosToSpend: wallet.selectedUtxos
+                )
+
+                await MainActor.run {
+                    transactionFee = Int(fee)
+                    shouldUseSendAll = false
+                }
             }
         } catch {
             Logger.error("Failed to calculate actual fee: \(error)")
             await MainActor.run {
                 transactionFee = 0
+                shouldUseSendAll = false
             }
         }
     }

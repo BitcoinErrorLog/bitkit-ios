@@ -42,17 +42,9 @@ struct ReceiveQr: View {
         }
     }
 
-    private var hasUsableChannels: Bool {
-        if GeoService.shared.isGeoBlocked {
-            return wallet.hasNonLspChannels()
-        } else {
-            return wallet.channelCount != 0
-        }
-    }
-
     private var availableTabItems: [TabItem<ReceiveTab>] {
         // Only show unified tab if there are usable channels
-        if hasUsableChannels {
+        if wallet.hasUsableChannels {
             return [
                 TabItem(.savings),
                 TabItem(.unified, activeColor: .white),
@@ -67,12 +59,7 @@ struct ReceiveQr: View {
     }
 
     var showingCjitOnboarding: Bool {
-        // Show CJIT onboarding when:
-        // 1. No channels at all, OR
-        // 2. Geoblocked with only Blocktank channels (treat as no usable channels)
-        let hasNoUsableChannels = (wallet.channelCount == 0) ||
-            (GeoService.shared.isGeoBlocked && !wallet.hasNonLspChannels())
-        return hasNoUsableChannels && cjitInvoice == nil && selectedTab == .spending
+        return !wallet.hasUsableChannels && cjitInvoice == nil && selectedTab == .spending
     }
 
     var body: some View {
@@ -88,7 +75,7 @@ struct ReceiveQr: View {
                 TabView(selection: $selectedTab) {
                     tabContent(for: .savings)
 
-                    if hasUsableChannels {
+                    if wallet.hasUsableChannels {
                         tabContent(for: .unified)
                     }
 
@@ -109,14 +96,14 @@ struct ReceiveQr: View {
                                 .foregroundColor(.purpleAccent),
                             isDisabled: wallet.nodeLifecycleState != .running
                         ) {
-                            if GeoService.shared.isGeoBlocked && !wallet.hasNonLspChannels() {
-                                navigationPath.append(.cjitGeoBlocked)
-                            } else {
+                            if !wallet.hasUsableChannels && !GeoService.shared.isGeoBlocked {
                                 navigationPath.append(.cjitAmount)
+                            } else if GeoService.shared.isGeoBlocked {
+                                navigationPath.append(.cjitGeoBlocked)
                             }
                         }
                     } else {
-                        CustomButton(title: showDetails ? tTodo("QR Code") : tTodo("Show Details")) {
+                        CustomButton(title: showDetails ? t("common__qr_code") : t("common__show_details")) {
                             showDetails.toggle()
                         }
                         .accessibilityIdentifier(showDetails ? "QRCode" : "ShowDetails")
@@ -210,10 +197,10 @@ struct ReceiveQr: View {
 
     var cjitOnboarding: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DisplayText(tTodo("Receive on <accent>spending balance</accent>"), accentColor: .purpleAccent)
+            DisplayText(t("wallet__receive_spending_title"), accentColor: .purpleAccent)
                 .padding(.bottom, 12)
 
-            BodyMText(tTodo("Enjoy instant and cheap\ntransactions with friends, family,\nand merchants."))
+            BodyMText(t("wallet__receive_spending_text"))
 
             Spacer()
 

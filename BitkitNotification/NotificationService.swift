@@ -1,47 +1,62 @@
+import Foundation
 import os.log
 import UserNotifications
 
+/// Lightweight notification service extension that handles incoming push notifications.
+///
+/// IMPORTANT: This extension does NOT start the LDK node due to iOS memory (~24MB) and time (~30s) constraints.
+/// Instead, it:
+/// 1. Decrypts the notification payload
+/// 2. Displays a time-sensitive notification with urgency messaging
+/// 3. Saves payment info for the main app to process when opened
+///
+/// The main app handles actual Lightning payment processing when the user opens it.
 class NotificationService: UNNotificationServiceExtension {
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent?
 
-    var notificationType: BlocktankNotificationType?
-    var notificationPayload: [String: Any]?
-
-    private lazy var notificationLogger: OSLog = {
-        let bundleID = Bundle.main.bundleIdentifier ?? "to.bitkit-regtest.notification"
+    private lazy var logger: OSLog = {
+        let bundleID = Bundle.main.bundleIdentifier ?? "to.bitkit.notification"
         return OSLog(subsystem: bundleID, category: "NotificationService")
     }()
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        os_log("🚨 Push received! %{public}@", log: notificationLogger, type: .error, request.identifier)
-        os_log("🔔 UserInfo: %{public}@", log: notificationLogger, type: .error, request.content.userInfo)
+        os_log("🚨 Push received! %{public}@", log: logger, type: .error, request.identifier)
+        os_log("🔔 UserInfo: %{public}@", log: logger, type: .error, request.content.userInfo)
 
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 
+        guard !StateLocker.isLocked(.lightning) else {
+            os_log("🔔 LDK-node process already locked, app likely in foreground", log: logger, type: .error)
+            return
+        }
+
         Task {
             do {
-                try await decryptPayload(request)
-                os_log("🔔 Decryption successful. Type: %{public}@", log: notificationLogger, type: .error, notificationType?.rawValue ?? "nil")
+                let (notificationType, payload) = try await self.decryptPayload(request)
+
+                // Configure notification content based on type
+                configureNotificationContent(for: notificationType, payload: payload)
+                deliver()
             } catch {
+                // Fallback notification if decryption fails
                 os_log(
                     "🔔 Failed to decrypt notification payload: %{public}@",
-                    log: notificationLogger,
+                    log: logger,
                     type: .error,
                     error.localizedDescription
                 )
+                configureFallbackNotification()
+                deliver()
             }
-
-            updateNotificationContent()
-            deliver()
         }
     }
 
-    func decryptPayload(_ request: UNNotificationRequest) async throws {
+    func decryptPayload(_ request: UNNotificationRequest) async throws -> (BlocktankNotificationType, [String: Any]) {
         guard let aps = request.content.userInfo["aps"] as? AnyObject else {
-            os_log("🔔 Failed to decrypt payload: missing aps payload", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: missing aps payload", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing aps payload"])
         }
 
         guard let alert = aps["alert"] as? AnyObject,
@@ -51,125 +66,146 @@ class NotificationService: UNNotificationServiceExtension {
               let publicKey = payload["publicKey"] as? String,
               let tag = payload["tag"] as? String
         else {
-            os_log("🔔 Failed to decrypt payload: missing details", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: missing details", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing payload details"])
         }
 
         guard let ciphertext = Data(base64Encoded: cipher) else {
-            os_log("🔔 Failed to decrypt payload: failed to decode cipher", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: failed to decode cipher", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to decode cipher"])
         }
 
         guard let privateKey = try Keychain.load(key: .pushNotificationPrivateKey) else {
-            os_log("🔔 Failed to decrypt payload: missing pushNotificationPrivateKey", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: missing pushNotificationPrivateKey", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 4, userInfo: [NSLocalizedDescriptionKey: "Missing pushNotificationPrivateKey"])
         }
 
         let password = try Crypto.generateSharedSecret(privateKey: privateKey, nodePubkey: publicKey, derivationName: "bitkit-notifications")
         let decrypted = try Crypto.decrypt(.init(cipher: ciphertext, iv: iv.hexaData, tag: tag.hexaData), secretKey: password)
 
-        os_log("🔔 Decrypted payload: %{public}@", log: notificationLogger, type: .error, String(data: decrypted, encoding: .utf8) ?? "")
-
         guard let jsonData = try JSONSerialization.jsonObject(with: decrypted, options: []) as? [String: Any] else {
-            os_log("🔔 Failed to decrypt payload: failed to convert decrypted data to utf8", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: failed to convert decrypted data to utf8", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to convert decrypted data to utf8"])
         }
 
         guard let payload = jsonData["payload"] as? [String: Any] else {
-            os_log("🔔 Failed to decrypt payload: missing payload", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: missing payload", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 6, userInfo: [NSLocalizedDescriptionKey: "Missing payload"])
         }
 
         guard let typeStr = jsonData["type"] as? String, let type = BlocktankNotificationType(rawValue: typeStr) else {
-            os_log("🔔 Failed to decrypt payload: missing type", log: notificationLogger, type: .error)
-            return
+            os_log("🔔 Failed to decrypt payload: missing type", log: logger, type: .error)
+            throw NSError(domain: "NotificationService", code: 7, userInfo: [NSLocalizedDescriptionKey: "Missing type"])
         }
 
-        notificationType = type
-        notificationPayload = payload
+        os_log("🔔 Decrypted payload: type=%{public}@, payload=%{public}@", log: logger, type: .info, typeStr, payload)
+
+        return (type, payload)
     }
 
-    func updateNotificationContent() {
-        guard let type = notificationType else {
-            bestAttemptContent?.title = "Bitkit"
-            bestAttemptContent?.body = "Open Bitkit to continue"
-            return
-        }
+    /// Configures notification content based on the notification type
+    /// - Parameters:
+    ///   - notificationType: The type of notification received
+    ///   - payload: Optional payload data containing additional information (amount, payment hash, etc.)
+    private func configureNotificationContent(for notificationType: BlocktankNotificationType, payload: [String: Any]?) {
+        guard let content = bestAttemptContent else { return }
 
-        switch type {
+        switch notificationType {
         case .incomingHtlc:
-            bestAttemptContent?.title = "Payment Incoming"
-            bestAttemptContent?.body = "Open now to receive - funds are being held"
-            if let amountMsat = notificationPayload?["amountMsat"] as? UInt64 {
-                let sats = amountMsat / 1000
-                ReceivedTxSheetDetails(type: .lightning, sats: sats).save()
-            }
+            content.title = "Incoming Payment"
+            content.body = "Open Bitkit now to receive your payment"
 
         case .cjitPaymentArrived:
-            bestAttemptContent?.title = "Payment Incoming"
-            bestAttemptContent?.body = "Open now to receive via new channel"
-            if let amountMsat = notificationPayload?["amountMsat"] as? UInt64 {
-                let sats = amountMsat / 1000
-                ReceivedTxSheetDetails(type: .lightning, sats: sats).save()
-            }
+            content.title = "Incoming Payment"
+            content.body = "Open Bitkit now to receive your payment"
 
         case .orderPaymentConfirmed:
-            bestAttemptContent?.title = "Channel Ready"
-            bestAttemptContent?.body = "Open Bitkit to complete setup"
+            content.title = "Spending Balance Ready"
+            content.body = "Open Bitkit to start paying anyone, anywhere."
 
         case .mutualClose:
-            bestAttemptContent?.title = "Channel Closed"
-            bestAttemptContent?.body = "Funds moved to savings"
+            content.title = "Spending Balance Expired"
+            content.body = "Open Bitkit to move funds from spending to savings"
 
         case .wakeToTimeout:
-            bestAttemptContent?.title = "Bitkit"
-            bestAttemptContent?.body = "Open to complete pending operation"
+            content.title = "Payment Pending"
+            content.body = "Open Bitkit to process pending payment"
 
-        case .paykitPaymentRequest:
-            bestAttemptContent?.title = "Payment Request Received"
-            bestAttemptContent?.body = "Tap to review and pay"
-
-        case .paykitSubscriptionDue:
-            bestAttemptContent?.title = "Subscription Payment Due"
-            bestAttemptContent?.body = "Open to process payment"
-
-        case .paykitAutoPayExecuted:
-            if let amount = notificationPayload?["amount"] as? UInt64 {
-                bestAttemptContent?.title = "Auto-Pay Executed"
-                bestAttemptContent?.body = "₿ \(amount) sent"
-            } else {
-                bestAttemptContent?.title = "Auto-Pay Executed"
-                bestAttemptContent?.body = "Payment sent successfully"
-            }
-
-        case .paykitSubscriptionFailed:
-            bestAttemptContent?.title = "Subscription Payment Failed"
-            if let reason = notificationPayload?["reason"] as? String {
-                bestAttemptContent?.body = reason
-            } else {
-                bestAttemptContent?.body = "Open to retry"
-            }
+        @unknown default:
+            content.title = "Bitkit"
+            content.body = "Open Bitkit to check for new activity"
         }
 
-        bestAttemptContent?.categoryIdentifier = "INCOMING_PAYMENT"
+        // Set time-sensitive interruption level for urgent notifications
+        content.interruptionLevel = .timeSensitive
+        content.relevanceScore = 1.0
+
+        // Store notification type in userInfo for the app to reference
+        var userInfo = content.userInfo
+        userInfo["notificationType"] = notificationType.rawValue
+        content.userInfo = userInfo
+
+        os_log("🔔 Configured notification: type=%{public}@, title=%{public}@", log: logger, type: .info, notificationType.rawValue, content.title)
+    }
+
+    /// Configures a fallback notification when decryption fails
+    private func configureFallbackNotification() {
+        guard let content = bestAttemptContent else { return }
+
+        content.title = "Bitkit"
+        content.body = "Open Bitkit to check for new activity"
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+
+        os_log("🔔 Using fallback notification content", log: logger, type: .info)
     }
 
     func deliver() {
-        if let contentHandler, let bestAttemptContent {
-            contentHandler(bestAttemptContent)
-            os_log("🔔 Notification delivered successfully", log: notificationLogger, type: .error)
-        } else {
-            os_log("🔔 Missing contentHandler or bestAttemptContent", log: notificationLogger, type: .error)
+        Task {
+            if let contentHandler, let bestAttemptContent {
+                contentHandler(bestAttemptContent)
+                os_log("🔔 Notification delivered successfully", log: logger, type: .error)
+            } else {
+                os_log("🔔 Missing contentHandler or bestAttemptContent", log: logger, type: .error)
+            }
         }
     }
 
     override func serviceExtensionTimeWillExpire() {
-        os_log("🔔 NotificationService: Delivering notification before timeout", log: notificationLogger, type: .error)
+        os_log("🔔 NotificationService: Delivering notification before timeout", log: logger, type: .error)
 
+        // Called just before the extension will be terminated by the system.
+        // Use this as an opportunity to deliver your "best attempt" at modified content, otherwise the original push payload will be used.
         if let contentHandler, let bestAttemptContent {
-            bestAttemptContent.title = "Bitkit"
-            bestAttemptContent.body = "Open Bitkit to continue"
             contentHandler(bestAttemptContent)
         }
+    }
+}
+
+// MARK: - String Extension for Hex Conversion
+
+private extension String {
+    var hexaData: Data {
+        var data = Data()
+        var hex = self
+
+        // Remove any spaces or non-hex characters
+        hex = hex.replacingOccurrences(of: " ", with: "")
+
+        // Ensure even number of characters
+        if hex.count % 2 != 0 {
+            hex = "0" + hex
+        }
+
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let nextIndex = hex.index(index, offsetBy: 2)
+            if let byte = UInt8(hex[index ..< nextIndex], radix: 16) {
+                data.append(byte)
+            }
+            index = nextIndex
+        }
+
+        return data
     }
 }

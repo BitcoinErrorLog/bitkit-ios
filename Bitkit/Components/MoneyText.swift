@@ -4,6 +4,7 @@ import SwiftUI
 enum MoneySize {
     case display
     case title
+    case subtitle
     case bodyMSB
     case bodySSB
     case caption
@@ -20,7 +21,7 @@ struct MoneyText: View {
     var unitType: MoneyUnitType = .primary
     var size: MoneySize = .display
     var symbol: Bool?
-    var enableHide: Bool = true
+    var enableHide: Bool = false
     var prefix: String?
     var color: Color = .textPrimary
     var symbolColor: Color?
@@ -95,6 +96,8 @@ extension MoneyText {
             )
         case .title:
             TitleText(text, textColor: color, accentColor: symbolColor ?? .textSecondary)
+        case .subtitle:
+            SubtitleText(text, textColor: color, accentColor: symbolColor ?? .textSecondary)
         case .bodyMSB:
             BodyMSBText(text, textColor: color, accentColor: symbolColor ?? .textSecondary)
         case .bodySSB:
@@ -116,19 +119,27 @@ extension MoneyText {
     }
 
     private var formattedValue: String {
-        guard let converted = currency.convert(sats: UInt64(abs(sats))) else { return "0" }
-
         if hideBalance {
             return displayDots
         }
 
-        switch unit {
-        case .fiat:
-            return converted.formatted
-        case .bitcoin:
-            let btcComponents = converted.bitcoinDisplay(unit: currency.displayUnit)
-            return btcComponents.value
+        if let converted = currency.convert(sats: UInt64(abs(sats))) {
+            switch unit {
+            case .fiat:
+                return converted.formatted
+            case .bitcoin:
+                return converted.bitcoinDisplay(unit: currency.displayUnit).value
+            }
         }
+
+        // Rates unavailable: show sats for bitcoin, "0" for fiat
+        if unit == .bitcoin {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = " "
+            return formatter.string(from: NSNumber(value: abs(sats))) ?? String(abs(sats))
+        }
+        return "0"
     }
 
     private var symbolText: String? {

@@ -1,13 +1,22 @@
 {
-  "originHash" : "2f6c0bdf37ed15ca97f2c2ce31efe3acd45e07f67be520c2d1d84f9bc8c6bbdd",
+  "originHash" : "17302aed9b1f94b6f928fd7e06b45ebec95883553cab0849836d3e292cab01d7",
   "pins" : [
+    {
+      "identity" : "bitkit-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/synonymdev/bitkit-core",
+      "state" : {
+        "branch" : "master",
+        "revision" : "76a63a2654f717accde5268905897b73e4f7d3c4"
+      }
+    },
     {
       "identity" : "codescanner",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/twostraws/CodeScanner",
       "state" : {
-        "revision" : "5e886430238944c7200fc9e10dbf2d9550dba865",
-        "version" : "2.5.2"
+        "revision" : "9fa582f4b36c69c2a55bff5fb3377eb170ae273c",
+        "version" : "2.5.1"
       }
     },
     {
@@ -16,16 +25,7 @@
       "location" : "https://github.com/synonymdev/ldk-node",
       "state" : {
         "branch" : "main",
-        "revision" : "612ad053cf086bb6d0d09720c0039102434177f8"
-      }
-    },
-    {
-      "identity" : "ldk-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lightningdevkit/ldk-swift/",
-      "state" : {
-        "revision" : "b36f37fc216ae83eb8fdc625ae3c85ea4158a7d6",
-        "version" : "0.0.125"
+        "revision" : "65f616fb466bde34a95c09eb85217eaee176e1e9"
       }
     },
     {
@@ -38,15 +38,6 @@
       }
     },
     {
-      "identity" : "sqlite.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stephencelis/SQLite.swift.git",
-      "state" : {
-        "revision" : "392dd6058624d9f6c5b4c769d165ddd8c7293394",
-        "version" : "0.15.4"
-      }
-    },
-    {
       "identity" : "swift-secp256k1",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/21-DOT-DEV/swift-secp256k1",
@@ -56,12 +47,12 @@
       }
     },
     {
-      "identity" : "swift-toolchain-sqlite",
+      "identity" : "vss-rust-client-ffi",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-toolchain-sqlite",
+      "location" : "https://github.com/synonymdev/vss-rust-client-ffi",
       "state" : {
-        "revision" : "b626d3002773b1a1304166643e7f118f724b2132",
-        "version" : "1.0.4"
+        "branch" : "master",
+        "revision" : "3d80852e6439c0b2034765e513e4620bb10b3f14"
       }
     },
     {

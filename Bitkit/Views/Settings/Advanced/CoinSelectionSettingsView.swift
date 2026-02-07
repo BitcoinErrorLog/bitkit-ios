@@ -16,13 +16,13 @@ extension CoinSelectionAlgorithm {
     var localizedTitle: String {
         switch self {
         case .branchAndBound:
-            return "Branch and Bound" // TODO: add missing localized text
+            return t("settings__adv__cs_branch_and_bound")
         case .largestFirst:
             return t("settings__adv__cs_min")
         case .oldestFirst:
             return t("settings__adv__cs_first_in_first_out")
         case .singleRandomDraw:
-            return "Single Random Draw" // TODO: add missing localized text
+            return t("settings__adv__cs_single_random_draw")
             // Commented out unsupported algorithms
             // case .smallestFirst:
             //     return t("settings__adv__cs_max")
@@ -34,13 +34,13 @@ extension CoinSelectionAlgorithm {
     var localizedDescription: String {
         switch self {
         case .branchAndBound:
-            return "Finds exact amount matches to minimize change" // TODO: add missing localized text
+            return t("settings__adv__cs_branch_and_bound_description")
         case .largestFirst:
             return t("settings__adv__cs_min_description")
         case .oldestFirst:
             return t("settings__adv__cs_first_in_first_out_description")
         case .singleRandomDraw:
-            return "Random selection for privacy" // TODO: add missing localized text
+            return t("settings__adv__cs_single_random_draw_description")
             // Commented out unsupported algorithms
             // case .smallestFirst:
             //     return t("settings__adv__cs_max_description")

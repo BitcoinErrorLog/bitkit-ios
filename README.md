@@ -1,28 +1,47 @@
 # Bitkit iOS (Native)
 
-> [!CAUTION]
-> ⚠️This is **NOT** the repository of the live Bitkit app in the app stores!
-> ⚠️Work-in-progress
-> The live Bitkit app repository is here: **[github.com/synonymdev/bitkit](https://github.com/synonymdev/bitkit)**
-
----
-
 ## About
 
-This repository contains a **new native iOS app** which is **not ready for production**.
-
+This repository contains the **native iOS app** for Bitkit.
 
 ## How to build
 
 1. Open Bitkit.xcodeproj in XCode
 2. Build
 
+### Network Configuration
+
+The app automatically selects the network based on the build configuration:
+
+- **Debug builds** → Uses **Regtest** network (for local development and testing)
+- **Release builds** → Uses **Bitcoin Mainnet** network (for production)
+
 ### Building for E2E tests
 
-To produce an E2E build (uses the local Electrum backend), pass the `E2E_BUILD` compilation flag:
+To produce an E2E build (uses the local Electrum backend by default), pass the `E2E_BUILD` compilation flag:
 
 ```bash
 xcodebuild -workspace Bitkit.xcodeproj/project.xcworkspace \
+  -scheme Bitkit \
+  -configuration Debug \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) E2E_BUILD' \
+  build
+```
+
+You can also set the backend/network at build time via Info.plist substitutions:
+
+```bash
+# Use network Electrum with regtest
+E2E_BACKEND=network E2E_NETWORK=regtest \
+  xcodebuild -workspace Bitkit.xcodeproj/project.xcworkspace \
+  -scheme Bitkit \
+  -configuration Debug \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) E2E_BUILD' \
+  build
+
+# Use network Electrum with mainnet
+E2E_BACKEND=network E2E_NETWORK=bitcoin \
+  xcodebuild -workspace Bitkit.xcodeproj/project.xcworkspace \
   -scheme Bitkit \
   -configuration Debug \
   SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) E2E_BUILD' \

@@ -45,14 +45,6 @@ struct MainSettings: View {
                         }
                         .accessibilityIdentifier("AdvancedSettings")
 
-                        NavigationLink(value: Route.paykitDashboard) {
-                            SettingsListLabel(
-                                title: "Paykit",
-                                iconName: "creditcard"
-                            )
-                        }
-                        .accessibilityIdentifier("PaykitSettings")
-
                         NavigationLink(value: Route.support) {
                             SettingsListLabel(
                                 title: t("settings__support_title"),

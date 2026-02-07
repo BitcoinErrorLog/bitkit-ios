@@ -17,7 +17,8 @@ enum AppReset {
 
         // Stop backup observers and reset VSS client
         await BackupService.shared.stopObservingBackups()
-        VssBackupClient.shared.reset()
+        await VssBackupClient.shared.reset()
+        VssStoreIdProvider.shared.clearCache()
 
         // Stop node and wipe LDK persistence via the wallet API.
         try await wallet.wipe()
@@ -29,13 +30,21 @@ enum AppReset {
         // Wipe keychain
         try Keychain.wipeEntireKeychain()
 
+        // Delete installation marker so next install can detect orphaned keychain
+        try? InstallationMarker.delete()
+
         // Wipe user defaults
         if let bundleID = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleID)
         }
 
+        // Prevent RN migration from triggering after wipe
+        MigrationsService.shared.markMigrationChecked()
+
         // Wipe logs
-        try wipeLogs()
+        if Env.network == .regtest {
+            try wipeLogs()
+        }
 
         // Recreate the entire app state tree to guarantee clean defaults for all @StateObject VMs.
         // Avoid showing splash during when app is reset

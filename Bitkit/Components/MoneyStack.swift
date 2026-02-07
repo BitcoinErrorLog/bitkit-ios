@@ -7,7 +7,9 @@ struct MoneyStack: View {
     var showSymbol: Bool = false
     var showEyeIcon: Bool = false
     var enableSwipeGesture: Bool = false
+    var enableHide: Bool = false
     var testIdPrefix: String = "TotalBalance"
+    var onTap: (() -> Void)?
 
     @EnvironmentObject var app: AppViewModel
     @EnvironmentObject var currency: CurrencyViewModel
@@ -25,6 +27,7 @@ struct MoneyStack: View {
                     unitType: .secondary,
                     size: .caption,
                     symbol: true,
+                    enableHide: enableHide,
                     color: .textSecondary,
                     testIdentifier: "MoneyText"
                 )
@@ -43,6 +46,7 @@ struct MoneyStack: View {
                         unitType: .primary,
                         size: .display,
                         symbol: showSymbol,
+                        enableHide: enableHide,
                         prefix: prefix,
                         color: .textPrimary,
                         testIdentifier: "MoneyText"
@@ -68,6 +72,7 @@ struct MoneyStack: View {
                     unitType: .secondary,
                     size: .caption,
                     symbol: true,
+                    enableHide: enableHide,
                     color: .textSecondary,
                     testIdentifier: "MoneyText"
                 )
@@ -86,6 +91,7 @@ struct MoneyStack: View {
                         unitType: .primary,
                         size: .display,
                         symbol: true,
+                        enableHide: enableHide,
                         prefix: prefix,
                         color: .textPrimary,
                         testIdentifier: "MoneyText"
@@ -111,6 +117,11 @@ struct MoneyStack: View {
         .accessibilityIdentifier(testIdPrefix)
         .contentShape(Rectangle())
         .onTapGesture {
+            if let onTap {
+                onTap()
+                return
+            }
+
             let previousDisplay = currency.primaryDisplay
 
             withAnimation(springAnimation) {

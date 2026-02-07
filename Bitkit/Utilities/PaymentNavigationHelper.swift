@@ -102,7 +102,15 @@ struct PaymentNavigationHelper {
         app: AppViewModel,
         currency: CurrencyViewModel,
         settings: SettingsViewModel
-    ) -> SendRoute {
+    ) -> SendRoute? {
+        if let lnurlWithdrawData = app.lnurlWithdrawData {
+            if lnurlWithdrawData.minWithdrawable == lnurlWithdrawData.maxWithdrawable {
+                return .lnurlWithdrawConfirm
+            } else {
+                return .lnurlWithdrawAmount
+            }
+        }
+
         let shouldUseQuickpay = shouldUseQuickpay(app: app, settings: settings, currency: currency)
 
         // Handle Lightning address / LNURL pay
@@ -117,8 +125,8 @@ struct PaymentNavigationHelper {
         }
 
         // Handle lightning invoice
-        if app.scannedLightningInvoice != nil {
-            let amount = app.scannedLightningInvoice!.amountSatoshis
+        if let invoice = app.scannedLightningInvoice {
+            let amount = invoice.amountSatoshis
 
             if amount > 0 && shouldUseQuickpay {
                 return .quickpay
@@ -132,6 +140,11 @@ struct PaymentNavigationHelper {
         }
 
         // Handle onchain invoice
-        return .amount
+        if let _ = app.scannedOnchainInvoice {
+            return .amount
+        }
+
+        // No valid invoice data
+        return nil
     }
 }

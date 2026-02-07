@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var activity: ActivityListViewModel
     @EnvironmentObject var app: AppViewModel
+    @EnvironmentObject var currency: CurrencyViewModel
     @EnvironmentObject var settings: SettingsViewModel
     @EnvironmentObject var wallet: WalletViewModel
 
@@ -10,14 +11,13 @@ struct HomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Header()
-
             ScrollView(showsIndicators: false) {
                 MoneyStack(
                     sats: wallet.totalBalanceSats,
                     showSymbol: true,
                     showEyeIcon: true,
-                    enableSwipeGesture: settings.swipeBalanceToHide
+                    enableSwipeGesture: settings.swipeBalanceToHide,
+                    enableHide: true
                 )
                 .padding(.top, 16 + 48)
                 .padding(.horizontal, 16)
@@ -33,11 +33,10 @@ struct HomeView: View {
                                 )
                             }
 
-                            Divider()
+                            CustomDivider()
                                 .frame(width: 1, height: 50)
-                                .background(Color.white16)
-                                .padding(.trailing, 16)
-                                .padding(.leading, 16)
+                                .background(Color.gray4)
+                                .padding(.horizontal, 16)
 
                             NavigationLink(value: Route.spendingWallet) {
                                 WalletBalanceView(
@@ -67,7 +66,32 @@ struct HomeView: View {
                     .padding(.bottom, 130)
                 }
             }
-            .scrollDisabled(isEditingWidgets)
+
+            // Gradients layer
+            VStack(spacing: 0) {
+                // Top gradient: black 100% to black 0%
+                LinearGradient(
+                    colors: [.black, .black.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 140)
+
+                Spacer()
+
+                // Bottom gradient: black 0% to black 100%
+                LinearGradient(
+                    colors: [.black.opacity(0), .black],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 140)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            // Header on top
+            Header()
         }
         /// Dismiss (calculator widget) keyboard when scrolling
         .scrollDismissesKeyboard(.immediately)
@@ -94,6 +118,9 @@ struct HomeView: View {
             }
         }
         .refreshable {
+            // Always refresh currency rates - needed for balance display
+            await currency.refresh()
+
             guard wallet.nodeLifecycleState == .running else {
                 return
             }

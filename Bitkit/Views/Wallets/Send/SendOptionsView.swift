@@ -4,15 +4,12 @@ import SwiftUI
 struct SendOptionsView: View {
     @EnvironmentObject var app: AppViewModel
     @EnvironmentObject var currency: CurrencyViewModel
-    @EnvironmentObject var navigation: NavigationViewModel
     @EnvironmentObject var scanner: ScannerManager
     @EnvironmentObject var settings: SettingsViewModel
     @EnvironmentObject var wallet: WalletViewModel
-    @EnvironmentObject var sheets: SheetViewModel
 
     @Binding var navigationPath: [SendRoute]
     @State private var selectedItem: PhotosPickerItem?
-    @State private var showingContactPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +38,7 @@ struct SendOptionsView: View {
                         icon: "users",
                         iconColor: .brandAccent,
                         title: t("wallet__recipient_contact"),
+                        isDisabled: true,
                         testID: "RecipientContact"
                     ) {
                         handleContact()
@@ -61,6 +59,7 @@ struct SendOptionsView: View {
                         title: t("wallet__recipient_manual"),
                         testID: "RecipientManual"
                     ) {
+                        app.resetManualEntryInput()
                         navigationPath.append(.manual)
                     }
                 }
@@ -74,23 +73,6 @@ struct SendOptionsView: View {
                 app: app,
                 currency: currency,
                 settings: settings
-            )
-        }
-        .sheet(isPresented: $showingContactPicker) {
-            ContactPickerSheet(
-                onSelect: { contact in
-                    sheets.hideSheet()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        NoisePaymentPrefill.shared.recipientPubkey = contact.publicKeyZ32
-                        navigation.navigate(.paykitNoisePayment)
-                    }
-                },
-                onNavigateToDiscovery: {
-                    sheets.hideSheet()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        navigation.navigate(.paykitContactDiscovery)
-                    }
-                }
             )
         }
     }
@@ -115,21 +97,8 @@ struct SendOptionsView: View {
     }
 
     func handleContact() {
-        showingContactPicker = true
-    }
-}
-
-/// Shared prefill storage for noise payment navigation
-class NoisePaymentPrefill {
-    static let shared = NoisePaymentPrefill()
-    var recipientPubkey: String?
-    
-    private init() {}
-    
-    func consume() -> String? {
-        let value = recipientPubkey
-        recipientPubkey = nil
-        return value
+        // TODO: implement contacts
+        // navigationPath.append(.contact)
     }
 }
 
@@ -141,12 +110,7 @@ class NoisePaymentPrefill {
                 NavigationStack {
                     SendOptionsView(navigationPath: .constant([]))
                         .environmentObject(AppViewModel())
-                        .environmentObject(CurrencyViewModel())
-                        .environmentObject(NavigationViewModel())
-                        .environmentObject(ScannerManager())
-                        .environmentObject(SettingsViewModel.shared)
                         .environmentObject(WalletViewModel())
-                        .environmentObject(SheetViewModel())
                 }
                 .presentationDetents([.height(UIScreen.screenHeight - 120)])
             }

@@ -23,6 +23,7 @@ struct AppScene: View {
     @StateObject private var tagManager = TagManager()
     @StateObject private var transferTracking: TransferTrackingManager
     @StateObject private var channelDetails = ChannelDetailsViewModel.shared
+    @StateObject private var migrations = MigrationsService.shared
 
     @State private var hideSplash = false
     @State private var removeSplash = false
@@ -47,11 +48,16 @@ struct AppScene: View {
         _app = StateObject(wrappedValue: AppViewModel(sheetViewModel: sheetViewModel, navigationViewModel: navigationViewModel))
         _sheets = StateObject(wrappedValue: sheetViewModel)
         _navigation = StateObject(wrappedValue: navigationViewModel)
-        _wallet = StateObject(wrappedValue: WalletViewModel(transferService: transferService))
+        let walletVm = WalletViewModel(transferService: transferService, sheetViewModel: sheetViewModel)
+        _wallet = StateObject(wrappedValue: walletVm)
         _currency = StateObject(wrappedValue: CurrencyViewModel())
         _blocktank = StateObject(wrappedValue: BlocktankViewModel())
         _activity = StateObject(wrappedValue: ActivityListViewModel(transferService: transferService))
-        _transfer = StateObject(wrappedValue: TransferViewModel(transferService: transferService, sheetViewModel: sheetViewModel))
+        _transfer = StateObject(wrappedValue: TransferViewModel(
+            transferService: transferService,
+            sheetViewModel: sheetViewModel,
+            onBalanceRefresh: { await walletVm.updateBalanceState() }
+        ))
         _widgets = StateObject(wrappedValue: WidgetsViewModel())
         _settings = StateObject(wrappedValue: SettingsViewModel.shared)
 
@@ -72,6 +78,33 @@ struct AppScene: View {
             .onChange(of: wallet.walletExists, perform: handleWalletExistsChange)
             .onChange(of: wallet.nodeLifecycleState, perform: handleNodeLifecycleChange)
             .onChange(of: scenePhase, perform: handleScenePhaseChange)
+            .onChange(of: migrations.isShowingMigrationLoading) { isLoading in
+                if !isLoading {
+                    SettingsViewModel.shared.updatePinEnabledState()
+                    widgets.loadSavedWidgets()
+                    suggestionsManager.reloadDismissed()
+                    tagManager.reloadLastUsedTags()
+                    if UserDefaults.standard.bool(forKey: "pinOnLaunch") && settings.pinEnabled {
+                        isPinVerified = false
+                    }
+                    SweepViewModel.checkAndPromptForSweepableFunds(sheets: sheets)
+
+                    if migrations.needsPostMigrationSync {
+                        app.toast(
+                            type: .warning,
+                            title: t("migration__network_required_title"),
+                            description: t("migration__network_required_msg"),
+                            visibilityTime: 8.0
+                        )
+                    }
+                }
+            }
+            .onChange(of: network.isConnected) { isConnected in
+                // Retry starting wallet when network comes back online
+                if isConnected {
+                    handleNetworkRestored()
+                }
+            }
             .environmentObject(app)
             .environmentObject(navigation)
             .environmentObject(network)
@@ -103,15 +136,6 @@ struct AppScene: View {
                     handleQuickAction(notification)
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .paykitRequestPayment)) { notification in
-                handlePaykitRequestNotification(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .paykitSubscriptionProposal)) { notification in
-                handlePaykitSubscriptionNotification(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .incomingPaymentNotification)) { notification in
-                handleIncomingPaymentNotification(notification)
-            }
             .onReceive(BackupService.shared.backupFailurePublisher) { intervalMinutes in
                 handleBackupFailure(intervalMinutes: intervalMinutes)
             }
@@ -120,7 +144,9 @@ struct AppScene: View {
     @ViewBuilder
     private var mainContent: some View {
         ZStack {
-            if showRecoveryScreen {
+            if migrations.isShowingMigrationLoading {
+                migrationLoadingContent
+            } else if showRecoveryScreen {
                 RecoveryRouter()
                     .accentColor(.white)
             } else if hasCriticalUpdate {
@@ -133,6 +159,53 @@ struct AppScene: View {
                 SplashView()
                     .opacity(hideSplash ? 0 : 1)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var migrationLoadingContent: some View {
+        VStack(spacing: 0) {
+            NavigationBar(title: t("migration__title"), showBackButton: false, showMenuButton: false)
+
+            VStack(spacing: 0) {
+                VStack {
+                    Spacer()
+
+                    Image("wallet")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(1, contentMode: .fit)
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .frame(maxHeight: .infinity)
+                .layoutPriority(1)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    DisplayText(t("migration__headline"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    BodyMText(t("migration__description"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ActivityIndicator(size: 32)
+                    .padding(.top, 32)
+            }
+            .padding(.horizontal, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 16)
+        .bottomSafeAreaPadding()
+        .background(Color.customBlack)
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 
@@ -225,19 +298,33 @@ struct AppScene: View {
 
         if wallet.isRestoringWallet {
             Task {
-                await BackupService.shared.performFullRestoreFromLatestBackup()
+                await restoreFromMostRecentBackup()
 
                 await MainActor.run {
                     widgets.loadSavedWidgets()
                     widgets.objectWillChange.send()
                 }
-            }
-        }
 
-        Task { await startWallet() }
+                await startWallet()
+            }
+        } else {
+            Task { await startWallet() }
+        }
     }
 
     private func startWallet() async {
+        // Check network before attempting to start - LDK hangs when VSS is unreachable
+        guard network.isConnected else {
+            Logger.warn("Network offline, skipping wallet start", context: "AppScene")
+            if MigrationsService.shared.isShowingMigrationLoading {
+                await MainActor.run {
+                    MigrationsService.shared.isShowingMigrationLoading = false
+                    SettingsViewModel.shared.updatePinEnabledState()
+                }
+            }
+            return
+        }
+
         do {
             try await wallet.start()
             try await activity.syncLdkNodePayments()
@@ -248,14 +335,58 @@ struct AppScene: View {
             // Schedule full backup after wallet create/restore to prevent epoch dates in backup status
             await BackupService.shared.scheduleFullBackup()
         } catch {
-            Logger.error("Failed to start wallet")
+            Logger.error(error, context: "Failed to start wallet")
             Haptics.notify(.error)
+
+            if MigrationsService.shared.isShowingMigrationLoading {
+                await MainActor.run {
+                    MigrationsService.shared.isShowingMigrationLoading = false
+                    SettingsViewModel.shared.updatePinEnabledState()
+                }
+            }
+        }
+    }
+
+    /// Handle orphaned keychain entries from previous app installs.
+    /// If the installation marker doesn't exist but keychain has data, the app was reinstalled
+    /// and the keychain data is orphaned (corresponding wallet data was deleted with the app).
+    private func handleOrphanedKeychain() {
+        // If marker exists, app was installed before - keychain is valid
+        if InstallationMarker.exists() {
+            Logger.debug("Installation marker exists, skipping orphaned keychain check", context: "AppScene")
+            return
+        }
+
+        // Check if native keychain has data (orphaned from previous install)
+        let hasNativeKeychain = (try? Keychain.exists(key: .bip39Mnemonic(index: 0))) == true
+
+        // Check if RN keychain has data without corresponding RN files (orphaned)
+        let hasOrphanedRNKeychain = MigrationsService.shared.hasOrphanedRNKeychain()
+
+        if hasNativeKeychain || hasOrphanedRNKeychain {
+            Logger.warn("Orphaned keychain detected, wiping", context: "AppScene")
+            try? Keychain.wipeEntireKeychain()
+
+            if hasOrphanedRNKeychain {
+                MigrationsService.shared.cleanupRNKeychain()
+            }
+        }
+
+        // Create marker for this installation
+        do {
+            try InstallationMarker.create()
+        } catch {
+            Logger.error("Failed to create installation marker: \(error)", context: "AppScene")
         }
     }
 
     @Sendable
     private func setupTask() async {
         do {
+            // Handle orphaned keychain before anything else
+            handleOrphanedKeychain()
+
+            await checkAndPerformRNMigration()
             try wallet.setWalletExistsState()
 
             // Setup TimedSheetManager with all timed sheets
@@ -271,17 +402,89 @@ struct AppScene: View {
         }
     }
 
+    private func checkAndPerformRNMigration() async {
+        let migrations = MigrationsService.shared
+
+        guard !migrations.isMigrationChecked else {
+            Logger.debug("RN migration already checked, skipping", context: "AppScene")
+            return
+        }
+
+        guard !migrations.hasNativeWalletData() else {
+            Logger.info("Native wallet data exists, skipping RN migration", context: "AppScene")
+            migrations.markMigrationChecked()
+            return
+        }
+
+        // Check if RN wallet data exists AND is not orphaned (has corresponding files)
+        guard migrations.hasRNWalletData(), !migrations.hasOrphanedRNKeychain() else {
+            Logger.info("No valid RN wallet data found, skipping migration", context: "AppScene")
+            migrations.markMigrationChecked()
+            return
+        }
+
+        await MainActor.run { migrations.isShowingMigrationLoading = true }
+        Logger.info("RN wallet data found, starting migration...", context: "AppScene")
+
+        do {
+            try await migrations.migrateFromReactNative()
+        } catch {
+            Logger.error("RN migration failed: \(error)", context: "AppScene")
+            migrations.markMigrationChecked()
+            await MainActor.run { migrations.isShowingMigrationLoading = false }
+            app.toast(
+                type: .error,
+                title: "Migration Failed",
+                description: "Please restore your wallet manually using your recovery phrase"
+            )
+        }
+    }
+
+    private func restoreFromMostRecentBackup() async {
+        guard let mnemonicData = try? Keychain.load(key: .bip39Mnemonic(index: 0)),
+              let mnemonic = String(data: mnemonicData, encoding: .utf8)
+        else { return }
+
+        let passphrase: String? = {
+            guard let data = try? Keychain.load(key: .bip39Passphrase(index: 0)) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
+
+        // Check for RN backup and get its timestamp
+        let hasRNBackup = await MigrationsService.shared.hasRNRemoteBackup(mnemonic: mnemonic, passphrase: passphrase)
+        let rnTimestamp: UInt64? = await hasRNBackup ? (try? RNBackupClient.shared.getLatestBackupTimestamp()) : nil
+
+        // Get VSS backup timestamp
+        let vssTimestamp = await BackupService.shared.getLatestBackupTime()
+
+        // Determine which backup is more recent
+        let shouldRestoreRN: Bool = {
+            guard hasRNBackup else { return false }
+            guard let vss = vssTimestamp, vss > 0 else { return true } // No VSS, use RN
+            guard let rn = rnTimestamp else { return false } // No RN timestamp, use VSS
+            return rn >= vss // RN is same or newer
+        }()
+
+        if shouldRestoreRN {
+            do {
+                try await MigrationsService.shared.restoreFromRNRemoteBackup(mnemonic: mnemonic, passphrase: passphrase)
+            } catch {
+                Logger.error("RN remote backup restore failed: \(error)", context: "AppScene")
+                // Fall back to VSS
+                await BackupService.shared.performFullRestoreFromLatestBackup()
+            }
+        } else {
+            await BackupService.shared.performFullRestoreFromLatestBackup()
+        }
+    }
+
     private func handleNodeLifecycleChange(_ state: NodeLifecycleState) {
         if state == .initializing {
             walletIsInitializing = true
         } else if state == .running {
             walletInitShouldFinish = true
+            app.markAppStatusInit()
             BackupService.shared.startObservingBackups()
-            
-            // Initialize Paykit after node is running
-            Task {
-                await initializePaykit()
-            }
         } else {
             if case .errorStarting = state {
                 walletInitShouldFinish = true
@@ -291,20 +494,36 @@ struct AppScene: View {
             }
         }
     }
-    
-    private func initializePaykit() async {
-        let success = await PaykitIntegrationHelper.setupAsync()
-        if success {
-            Logger.info("Paykit initialized successfully after node started", context: "AppScene")
-        } else {
-            Logger.error("Failed to initialize Paykit after node started", context: "AppScene")
-        }
-    }
 
     private func handleScenePhaseChange(_: ScenePhase) {
         // If PIN is enabled, lock the app when the app goes to the background
         if scenePhase == .background && settings.pinEnabled {
             isPinVerified = false
+        }
+    }
+
+    private func handleNetworkRestored() {
+        // Refresh currency rates when network is restored - critical for UI
+        // to display balances (MoneyText returns "0" if rates are nil)
+        Task {
+            await currency.refresh()
+        }
+
+        guard wallet.walletExists == true,
+              scenePhase == .active
+        else {
+            return
+        }
+
+        // If node is stopped/failed, restart it
+        switch wallet.nodeLifecycleState {
+        case .stopped, .errorStarting:
+            Logger.info("Network restored, retrying wallet start...", context: "AppScene")
+            Task {
+                await startWallet()
+            }
+        default:
+            break
         }
     }
 
@@ -318,58 +537,16 @@ struct AppScene: View {
         switch shortcutType {
         case "Recovery":
             showRecoveryScreen = true
-        case "PaykitRequestPayment":
-            // Navigate to Paykit payment request creation
-            navigation.navigate(.paykitPaymentRequests)
-        case "PaykitPayContact":
-            // Navigate to Paykit contacts for payment
-            navigation.navigate(.paykitContacts)
-        case "ScanQR":
-            // Open scanner with Paykit URI support
-            sheets.showSheet(.scanner)
         default:
             break
         }
-    }
-    
-    private func handlePaykitRequestNotification(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let requestId = userInfo["requestId"] as? String
-        else {
-            return
-        }
-        Logger.info("Handling Paykit request notification: \(requestId)", context: "AppScene")
-        app.pendingPaykitRequestId = requestId
-        navigation.navigate(.paykitPaymentRequests)
-    }
-    
-    private func handlePaykitSubscriptionNotification(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let subscriptionId = userInfo["subscriptionId"] as? String
-        else {
-            return
-        }
-        Logger.info("Handling Paykit subscription notification: \(subscriptionId)", context: "AppScene")
-        app.pendingPaykitSubscriptionId = subscriptionId
-        navigation.navigate(.paykitSubscriptions)
     }
 
     private func handleBackupFailure(intervalMinutes: Int) {
         app.toast(
             type: .error,
             title: t("settings__backup__failed_title"),
-            description: t("settings__backup__failed_message", variables: ["interval": "\(intervalMinutes)"])
+            description: tPlural("settings__backup__failed_message", arguments: ["interval": intervalMinutes])
         )
-    }
-    
-    private func handleIncomingPaymentNotification(_ notification: Notification) {
-        guard let userInfo = notification.userInfo else { return }
-
-        let paymentHash = userInfo["paymentHash"] as? String
-        let type = userInfo["type"] as? String ?? ""
-
-        Logger.info("Handling incoming payment notification: type=\(type), paymentHash=\(paymentHash ?? "nil")", context: "AppScene")
-
-        sheets.showSheet(.incomingPayment, data: paymentHash)
     }
 }

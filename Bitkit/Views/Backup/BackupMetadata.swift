@@ -25,6 +25,7 @@ struct BackupMetadata: View {
                     BodySText(
                         t("security__mnemonic_latest_backup", variables: ["time": lastBackupTime]),
                         textColor: .textPrimary,
+                        accentColor: .textPrimary,
                         accentFont: Fonts.bold
                     )
                     .padding(.bottom, 16)
@@ -46,7 +47,7 @@ struct BackupMetadata: View {
     }
 
     private func loadLastBackupTime() async {
-        if let timestamp = BackupService.shared.getLatestBackupTime() {
+        if let timestamp = await BackupService.shared.getLatestBackupTime() {
             let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
