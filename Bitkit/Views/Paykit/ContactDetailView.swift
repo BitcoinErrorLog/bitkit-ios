@@ -86,14 +86,11 @@ private struct ContactDetailContent: View {
         ScrollView {
             VStack(spacing: 24) {
                 // Large Avatar
-                Circle()
-                    .fill(Color.brandAccent.opacity(0.2))
-                    .frame(width: 120, height: 120)
-                    .overlay {
-                        Text(String(contact.name.isEmpty ? contact.publicKeyZ32.prefix(1) : contact.name.prefix(1)).uppercased())
-                            .font(Fonts.bold(size: 48))
-                            .foregroundColor(.brandAccent)
-                    }
+                ContactAvatarView(
+                    name: contact.name.isEmpty ? contact.publicKeyZ32 : contact.name,
+                    avatarUrl: contact.avatarUrl,
+                    size: 120
+                )
                 
                 // Name
                 Text(contact.name.isEmpty ? "Unknown Contact" : contact.name)

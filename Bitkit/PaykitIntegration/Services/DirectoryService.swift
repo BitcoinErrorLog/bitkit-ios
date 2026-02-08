@@ -328,7 +328,7 @@ public final class DirectoryService {
             return PubkyProfile(
                 name: sdkProfile.name,
                 bio: sdkProfile.bio,
-                image: sdkProfile.image,
+                image: sdkProfile.image ?? sdkProfile.avatar,
                 links: sdkProfile.links?.map { PubkyProfileLink(title: $0.title, url: $0.url) }
             )
         } catch {
@@ -597,9 +597,11 @@ public final class DirectoryService {
         for followPubkey in followsList {
             // Fetch profile for this follow to get their name
             var profileName: String?
+            var profileImage: String?
             do {
                 if let profile = try await fetchProfile(for: followPubkey) {
                     profileName = profile.name
+                    profileImage = profile.image
                 }
             } catch {
                 Logger.debug("Failed to fetch profile for follow \(followPubkey.prefix(12))...: \(error)", context: "DirectoryService")
@@ -620,6 +622,7 @@ public final class DirectoryService {
                 DirectoryDiscoveredContact(
                     pubkey: followPubkey,
                     name: profileName,
+                    avatarUrl: profileImage,
                     hasPaymentMethods: hasPaymentMethods,
                     supportedMethods: paymentMethods.map { $0.methodId }
                 )
@@ -1309,6 +1312,7 @@ public struct DirectoryDiscoveredContact: Identifiable {
     public var id: String { pubkey }
     public let pubkey: String
     public let name: String?
+    public let avatarUrl: String?
     public let hasPaymentMethods: Bool
     public let supportedMethods: [String]
     public var endpointHealth: [String: Bool]
@@ -1317,6 +1321,7 @@ public struct DirectoryDiscoveredContact: Identifiable {
     public init(
         pubkey: String,
         name: String?,
+        avatarUrl: String? = nil,
         hasPaymentMethods: Bool,
         supportedMethods: [String],
         endpointHealth: [String: Bool] = [:],
@@ -1324,6 +1329,7 @@ public struct DirectoryDiscoveredContact: Identifiable {
     ) {
         self.pubkey = pubkey
         self.name = name
+        self.avatarUrl = avatarUrl
         self.hasPaymentMethods = hasPaymentMethods
         self.supportedMethods = supportedMethods
         

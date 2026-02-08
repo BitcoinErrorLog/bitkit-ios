@@ -140,14 +140,11 @@ struct ContactRow: View {
     
     var body: some View {
         HStack {
-            Circle()
-                .fill(Color.brandAccent.opacity(0.2))
-                .frame(width: 40, height: 40)
-                .overlay {
-                    Text(String(contact.name.isEmpty ? contact.publicKeyZ32.prefix(1) : contact.name.prefix(1)).uppercased())
-                        .foregroundColor(.brandAccent)
-                        .font(Fonts.semiBold(size: 17))
-                }
+            ContactAvatarView(
+                name: contact.name.isEmpty ? contact.publicKeyZ32 : contact.name,
+                avatarUrl: contact.avatarUrl,
+                size: 40
+            )
             
             VStack(alignment: .leading, spacing: 4) {
                 BodyMText(contact.name.isEmpty ? "Unknown" : contact.name)

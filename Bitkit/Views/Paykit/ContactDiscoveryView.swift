@@ -355,14 +355,11 @@ struct DiscoveredContactRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color.brandAccent.opacity(0.2))
-                .frame(width: 48, height: 48)
-                .overlay {
-                    Text(String((contact.name ?? contact.pubkey).prefix(1)).uppercased())
-                        .foregroundColor(.brandAccent)
-                        .font(Fonts.semiBold(size: 17))
-                }
+            ContactAvatarView(
+                name: contact.name ?? contact.pubkey,
+                avatarUrl: contact.avatarUrl,
+                size: 48
+            )
             
             VStack(alignment: .leading, spacing: 4) {
                 BodyMBoldText(contact.name ?? contact.pubkey)
@@ -818,7 +815,8 @@ class ContactDiscoveryViewModel: ObservableObject {
         let contact = Contact(
             publicKeyZ32: discoveredContact.pubkey,
             name: discoveredContact.name ?? discoveredContact.pubkey,
-            notes: "Discovered from Pubky follows"
+            notes: "Discovered from Pubky follows",
+            avatarUrl: discoveredContact.avatarUrl
         )
         try contactStorage.saveContact(contact)
     }

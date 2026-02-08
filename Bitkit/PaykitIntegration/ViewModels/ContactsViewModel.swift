@@ -49,7 +49,8 @@ class ContactsViewModel: ObservableObject {
                     let contact = Contact(
                         publicKeyZ32: discovered.pubkey,
                         name: discovered.name ?? existing?.name ?? "",
-                        notes: existing?.notes
+                        notes: existing?.notes,
+                        avatarUrl: discovered.avatarUrl ?? existing?.avatarUrl
                     )
                     // Preserve payment history from existing
                     var mutableContact = contact

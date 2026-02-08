@@ -96,7 +96,8 @@ public class ImageUploadService {
         let filePath = String(stripped[slashIndex...])
         
         // Fetch the file metadata JSON
-        let adapter = PubkyUnauthenticatedStorageAdapter()
+        let homeserverURL = await HomeserverResolver.shared.resolveWithDNS(pubkey: HomeserverPubkey(pubkey))
+        let adapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: homeserverURL.value)
         let metaResult = adapter.get(ownerPubkey: pubkey, path: filePath)
         
         guard metaResult.success, let metaContent = metaResult.content,
@@ -121,7 +122,9 @@ public class ImageUploadService {
         let blobPath = String(blobStripped[blobSlashIndex...])
         
         // Fetch the raw image data
-        let dataResult = adapter.getData(ownerPubkey: blobPubkey, path: blobPath)
+        let blobHomeserverURL = await HomeserverResolver.shared.resolveWithDNS(pubkey: HomeserverPubkey(blobPubkey))
+        let blobAdapter = PubkyUnauthenticatedStorageAdapter(homeserverBaseURL: blobHomeserverURL.value)
+        let dataResult = blobAdapter.getData(ownerPubkey: blobPubkey, path: blobPath)
         
         guard dataResult.success, let imageData = dataResult.data else {
             Logger.error("Failed to download blob from \(blobPath)", context: "ImageUploadService")

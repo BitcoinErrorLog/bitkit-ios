@@ -108,6 +108,9 @@ public class ContactStorage {
                 var merged = newContact
                 merged.lastPaymentAt = contacts[index].lastPaymentAt
                 merged.paymentCount = contacts[index].paymentCount
+                if merged.avatarUrl == nil {
+                    merged.avatarUrl = contacts[index].avatarUrl
+                }
                 contacts[index] = merged
             } else {
                 contacts.append(newContact)

@@ -15,6 +15,8 @@ public struct Contact: Identifiable, Codable, Equatable {
     let publicKeyZ32: String
     /// Display name
     var name: String
+    /// Avatar image URL (pubky:// or https)
+    var avatarUrl: String?
     /// Optional notes
     var notes: String?
     /// When the contact was added
@@ -24,10 +26,11 @@ public struct Contact: Identifiable, Codable, Equatable {
     /// Total number of payments to this contact
     var paymentCount: Int
     
-    init(publicKeyZ32: String, name: String, notes: String? = nil) {
+    init(publicKeyZ32: String, name: String, notes: String? = nil, avatarUrl: String? = nil) {
         self.id = publicKeyZ32
         self.publicKeyZ32 = publicKeyZ32
         self.name = name
+        self.avatarUrl = avatarUrl
         self.notes = notes
         self.createdAt = Date()
         self.lastPaymentAt = nil

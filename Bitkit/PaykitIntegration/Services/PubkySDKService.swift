@@ -289,12 +289,20 @@ public struct SDKProfile: Codable {
     public let name: String?
     public let bio: String?
     public let image: String?
+    public let avatar: String?
     public let links: [SDKProfileLink]?
     
-    public init(name: String? = nil, bio: String? = nil, image: String? = nil, links: [SDKProfileLink]? = nil) {
+    public init(
+        name: String? = nil,
+        bio: String? = nil,
+        image: String? = nil,
+        avatar: String? = nil,
+        links: [SDKProfileLink]? = nil
+    ) {
         self.name = name
         self.bio = bio
         self.image = image
+        self.avatar = avatar
         self.links = links
     }
 }

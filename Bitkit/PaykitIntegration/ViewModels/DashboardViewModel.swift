@@ -103,7 +103,8 @@ class DashboardViewModel: ObservableObject {
                 let contact = Contact(
                     publicKeyZ32: discovered.pubkey,
                     name: discovered.name ?? existing?.name ?? "",
-                    notes: existing?.notes
+                    notes: existing?.notes,
+                    avatarUrl: discovered.avatarUrl ?? existing?.avatarUrl
                 )
                 followContacts.append(contact)
             }
