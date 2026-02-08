@@ -317,20 +317,35 @@ public final class SecureHandoffHandler {
             throw SecureHandoffError.payloadNotFound
         }
         
-        // SECURITY: Require encrypted sealed blob - no plaintext fallback
-        guard let envelopeString = String(data: payloadData, encoding: .utf8),
-              isSealedBlob(envelopeString) else {
-            Logger.error("Handoff payload is not an encrypted sealed blob - rejecting", context: "SecureHandoffHandler")
+        guard let envelopeString = String(data: payloadData, encoding: .utf8) else {
+            Logger.error("Handoff payload is not valid UTF-8", context: "SecureHandoffHandler")
             throw SecureHandoffError.invalidPayload
         }
         
-        Logger.debug("Detected encrypted sealed blob envelope", context: "SecureHandoffHandler")
-        return try await decryptHandoffEnvelope(
-            envelopeJson: envelopeString,
-            pubkey: pubkey,
-            requestId: requestId,
-            ephemeralSecretKey: ephemeralSecretKey
-        )
+        // Check for SB2 binary wire format wrapped as { "sb2": "<base64>" }
+        if let sb2Data = parseSb2Wrapper(envelopeString) {
+            Logger.debug("Detected SB2 binary wire format envelope (\(sb2Data.count) bytes)", context: "SecureHandoffHandler")
+            return try await decryptSb2Envelope(
+                envelopeBytes: sb2Data,
+                pubkey: pubkey,
+                requestId: requestId,
+                ephemeralSecretKey: ephemeralSecretKey
+            )
+        }
+        
+        // Fallback: check for legacy JSON sealed blob format (v1/v2 with epk field)
+        if isSealedBlob(envelopeString) {
+            Logger.debug("Detected legacy JSON sealed blob envelope", context: "SecureHandoffHandler")
+            return try await decryptHandoffEnvelope(
+                envelopeJson: envelopeString,
+                pubkey: pubkey,
+                requestId: requestId,
+                ephemeralSecretKey: ephemeralSecretKey
+            )
+        }
+        
+        Logger.error("Handoff payload is not a recognized encrypted format - rejecting. Preview: \(envelopeString.prefix(100))", context: "SecureHandoffHandler")
+        throw SecureHandoffError.invalidPayload
     }
     
     /// Decrypt sealed blob envelope using ephemeral secret key
@@ -385,6 +400,56 @@ public final class SecureHandoffHandler {
         let hasV2 = json.contains("\"v\":2") || json.contains("\"v\": 2")
         let hasEpk = json.contains("\"epk\":") || json.contains("\"epk\" :")
         return (hasV1 || hasV2) && hasEpk
+    }
+    
+    /// Parse SB2 wrapper format: { "sb2": "<base64>" }
+    /// Returns the decoded binary SB2 envelope bytes, or nil if not in this format
+    private func parseSb2Wrapper(_ json: String) -> Data? {
+        guard let jsonData = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let sb2Base64 = obj["sb2"] as? String else {
+            return nil
+        }
+        return Data(base64Encoded: sb2Base64)
+    }
+    
+    /// Decrypt SB2 binary wire format envelope using ephemeral secret key
+    private func decryptSb2Envelope(
+        envelopeBytes: Data,
+        pubkey: String,
+        requestId: String,
+        ephemeralSecretKey: String?
+    ) async throws -> SecureHandoffPayload {
+        guard let secretKey = ephemeralSecretKey else {
+            Logger.error("Ephemeral key required for SB2 decryption but not found", context: "SecureHandoffHandler")
+            throw SecureHandoffError.missingEphemeralKey
+        }
+        
+        let canonicalPath = "/pub/paykit.app/v0/handoff/\(requestId)"
+        
+        do {
+            guard let secretKeyData = Data(hexString: secretKey) else {
+                throw SecureHandoffError.decryptionFailed("Invalid secret key hex")
+            }
+            
+            let ownerPeeridBytes = z32Decode(pubkey)
+            
+            let result = try sb2Decrypt(
+                envelopeBytes: envelopeBytes,
+                recipientInboxSk: secretKeyData,
+                ownerPeerid: ownerPeeridBytes,
+                canonicalPath: canonicalPath
+            )
+            
+            let payload = try JSONDecoder().decode(SecureHandoffPayload.self, from: result.plaintext)
+            Logger.info("Successfully decrypted SB2 handoff payload v\(payload.version)", context: "SecureHandoffHandler")
+            return payload
+        } catch let error as SecureHandoffError {
+            throw error
+        } catch {
+            Logger.error("SB2 decryption failed: \(error)", context: "SecureHandoffHandler")
+            throw SecureHandoffError.decryptionFailed(error.localizedDescription)
+        }
     }
     
     private func buildSetupResult(from payload: SecureHandoffPayload, homeserverURL: String) -> PaykitSetupResult {

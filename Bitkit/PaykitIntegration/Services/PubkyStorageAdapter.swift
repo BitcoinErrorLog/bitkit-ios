@@ -91,6 +91,13 @@ public final class PubkyStorageAdapter {
     }
 }
 
+/// Result for raw binary data operations
+public struct StorageDataResult {
+    public let success: Bool
+    public let data: Data?
+    public let error: String?
+}
+
 enum PubkyStorageError: LocalizedError {
     case saveFailed(String)
     case retrieveFailed(String)
@@ -170,6 +177,51 @@ public class PubkyUnauthenticatedStorageAdapter: PubkyUnauthenticatedStorageCall
         semaphore.wait()
         
         return result ?? StorageGetResult(success: false, content: nil, error: "Unknown error")
+    }
+    
+    /// GET raw binary data (for downloading blobs like images)
+    public func getData(ownerPubkey: String, path: String) -> StorageDataResult {
+        let baseURL = homeserverBaseURL ?? PubkyConfig.homeserverBaseURL()
+        let urlString = "\(baseURL)\(path)"
+        
+        guard let url = URL(string: urlString) else {
+            return StorageDataResult(success: false, data: nil, error: "Invalid URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(ownerPubkey, forHTTPHeaderField: "pubky-host")
+        
+        var result: StorageDataResult?
+        let semaphore = DispatchSemaphore(value: 0)
+        
+        let task = session.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            
+            if let error = error {
+                result = StorageDataResult(success: false, data: nil, error: "Network error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                result = StorageDataResult(success: false, data: nil, error: "Invalid HTTP response")
+                return
+            }
+            
+            switch httpResponse.statusCode {
+            case 404:
+                result = StorageDataResult(success: true, data: nil, error: nil)
+            case 200...299:
+                result = StorageDataResult(success: true, data: data, error: nil)
+            default:
+                result = StorageDataResult(success: false, data: nil, error: "HTTP \(httpResponse.statusCode)")
+            }
+        }
+        
+        task.resume()
+        semaphore.wait()
+        
+        return result ?? StorageDataResult(success: false, data: nil, error: "Unknown error")
     }
     
     public func list(ownerPubkey: String, prefix: String) -> StorageListResult {

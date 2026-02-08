@@ -253,6 +253,13 @@ struct MainNavView: View {
                     return
                 }
 
+                // Handle bitkit://profile deep link
+                if url.scheme == "bitkit" && url.host == "profile" {
+                    Logger.info("Navigating to profile via deep link", context: "MainNavView")
+                    navigation.navigate(.profile)
+                    return
+                }
+
                 // Handle bitkit://subscriptions deep link
                 if url.scheme == "bitkit" && url.host == "subscriptions" {
                     Logger.info("Navigating to subscriptions via deep link", context: "MainNavView")

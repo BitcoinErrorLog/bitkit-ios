@@ -317,17 +317,18 @@ public final class DirectoryService {
     
     // MARK: - Profile Operations
     
-    /// Fetch profile for a pubkey from Pubky directory
+    /// Fetch profile for a pubkey from Pubky directory (always from network, bypasses caches)
     /// Uses PubkySDKService first, falls back to direct FFI if unavailable
     public func fetchProfile(for pubkey: String) async throws -> PubkyProfile? {
         // Try PubkySDKService first (preferred, direct homeserver access)
+        // Always force refresh to bypass SDK cache
         do {
-            let sdkProfile = try await PubkySDKService.shared.fetchProfile(pubkey: pubkey)
+            let sdkProfile = try await PubkySDKService.shared.fetchProfile(pubkey: pubkey, forceRefresh: true)
             // Convert to local PubkyProfile type
             return PubkyProfile(
                 name: sdkProfile.name,
                 bio: sdkProfile.bio,
-                avatar: sdkProfile.image,
+                image: sdkProfile.image,
                 links: sdkProfile.links?.map { PubkyProfileLink(title: $0.title, url: $0.url) }
             )
         } catch {
@@ -363,7 +364,7 @@ public final class DirectoryService {
                     return PubkyProfile(
                         name: json["name"] as? String,
                         bio: json["bio"] as? String,
-                        avatar: json["avatar"] as? String,
+                        image: (json["image"] as? String) ?? (json["avatar"] as? String),
                         links: (json["links"] as? [[String: String]])?.compactMap { dict in
                             guard let title = dict["title"], let url = dict["url"] else { return nil }
                             return PubkyProfileLink(title: title, url: url)
@@ -434,6 +435,16 @@ public final class DirectoryService {
         return profile
     }
     
+    /// Update the in-memory and persistent profile caches with a freshly published profile
+    public func updateCachedProfile(_ profile: PubkyProfile, for pubkey: String) {
+        cachedProfile = profile
+        cachedProfilePubkey = pubkey
+        try? ProfileStorage.shared.saveProfile(profile, for: pubkey)
+        // Also invalidate SDK cache so next fetch gets fresh data
+        PubkySDKService.shared.invalidateProfileCache(for: pubkey)
+        Logger.debug("Updated cached profile for \(pubkey.prefix(12))...", context: "DirectoryService")
+    }
+    
     /// Clear the cached profile (call when session changes)
     public func clearProfileCache() {
         cachedProfile = nil
@@ -468,7 +479,7 @@ public final class DirectoryService {
         var profileDict: [String: Any] = [:]
         if let name = profile.name { profileDict["name"] = name }
         if let bio = profile.bio { profileDict["bio"] = bio }
-        if let avatar = profile.avatar { profileDict["avatar"] = avatar }
+        if let image = profile.image { profileDict["image"] = image }
         if let links = profile.links {
             profileDict["links"] = links.map { ["title": $0.title, "url": $0.url] }
         }
@@ -1335,14 +1346,36 @@ public struct DirectoryDiscoveredContact: Identifiable {
 public struct PubkyProfile: Codable {
     public let name: String?
     public let bio: String?
-    public let avatar: String?
+    public let image: String?
     public let links: [PubkyProfileLink]?
     
-    public init(name: String? = nil, bio: String? = nil, avatar: String? = nil, links: [PubkyProfileLink]? = nil) {
+    public init(name: String? = nil, bio: String? = nil, image: String? = nil, links: [PubkyProfileLink]? = nil) {
         self.name = name
         self.bio = bio
-        self.avatar = avatar
+        self.image = image
         self.links = links
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        bio = try container.decodeIfPresent(String.self, forKey: .bio)
+        image = try container.decodeIfPresent(String.self, forKey: .image)
+            ?? container.decodeIfPresent(String.self, forKey: .avatar)
+        links = try container.decodeIfPresent([PubkyProfileLink].self, forKey: .links)
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(bio, forKey: .bio)
+        try container.encodeIfPresent(image, forKey: .image)
+        try container.encodeIfPresent(links, forKey: .links)
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case name, bio, image, links
+        case avatar
     }
 }
 

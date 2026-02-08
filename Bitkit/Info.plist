@@ -19,6 +19,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>pubkyring</string>
+		<string>pubkyauth</string>
+	</array>
 	<key>E2E_BACKEND</key>
 	<string>$(E2E_BACKEND)</string>
 	<key>E2E_NETWORK</key>

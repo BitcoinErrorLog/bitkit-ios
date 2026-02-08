@@ -23,6 +23,7 @@ struct ProfileEditView: View {
     @State private var avatarUrl: String?
     @State private var selectedImage: UIImage?
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var loadedAvatarImage: UIImage?
     
     // Original profile for comparison
     @State private var originalProfile: PubkyProfile?
@@ -195,7 +196,7 @@ struct ProfileEditView: View {
                             .fill(Color.brandAccent.opacity(0.2))
                             .frame(width: 100, height: 100)
                             .overlay {
-                                if let image = selectedImage {
+                                if let image = selectedImage ?? loadedAvatarImage {
                                     Image(uiImage: image)
                                         .resizable()
                                         .scaledToFill()
@@ -300,7 +301,7 @@ struct ProfileEditView: View {
                 .foregroundColor(.textSecondary)
                 .padding(.horizontal, 16)
             
-            ProfilePreviewCard(profile: currentProfile, selectedImage: selectedImage)
+            ProfilePreviewCard(profile: currentProfile, selectedImage: selectedImage ?? loadedAvatarImage)
                 .padding(.horizontal, 16)
         }
     }
@@ -354,7 +355,7 @@ struct ProfileEditView: View {
         PubkyProfile(
             name: name.isEmpty ? nil : name,
             bio: bio.isEmpty ? nil : bio,
-            avatar: avatarUrl,
+            image: avatarUrl,
             links: links.isEmpty ? nil : links.filter { !$0.title.isEmpty && !$0.url.isEmpty }.map {
                 PubkyProfileLink(title: $0.title, url: $0.url)
             }
@@ -402,14 +403,26 @@ struct ProfileEditView: View {
             }
             
             if let profile = profile {
+                // Download avatar image from homeserver if URL exists
+                var downloadedAvatar: UIImage?
+                if let imageUrl = profile.image, !imageUrl.isEmpty {
+                    downloadedAvatar = await ImageUploadService.shared.downloadProfileImage(fileUrl: imageUrl)
+                }
+                
                 await MainActor.run {
                     self.originalProfile = profile
                     self.name = profile.name ?? ""
                     self.bio = profile.bio ?? ""
-                    self.avatarUrl = profile.avatar
+                    self.avatarUrl = profile.image
                     self.links = profile.links?.map {
                         EditableLink(title: $0.title, url: $0.url)
                     } ?? []
+                    // Only replace avatar if download succeeded, otherwise keep existing
+                    if let avatar = downloadedAvatar {
+                        self.loadedAvatarImage = avatar
+                    } else if profile.image == nil || profile.image?.isEmpty == true {
+                        self.loadedAvatarImage = nil
+                    }
                     // Clear selected image on refresh to show current server state
                     if forceRefresh {
                         self.selectedImage = nil
@@ -449,7 +462,7 @@ struct ProfileEditView: View {
             let profileToPublish = PubkyProfile(
                 name: name.isEmpty ? nil : name,
                 bio: bio.isEmpty ? nil : bio,
-                avatar: imageUrl,
+                image: imageUrl,
                 links: links.isEmpty ? nil : links.filter { !$0.title.isEmpty && !$0.url.isEmpty }.map {
                     PubkyProfileLink(title: $0.title, url: $0.url)
                 }
@@ -457,14 +470,19 @@ struct ProfileEditView: View {
             
             try await DirectoryService.shared.publishProfile(profileToPublish)
             
-            // Persist profile locally and notify header
+            // Update all caches (DirectoryService, ProfileStorage, PubkySDKService) with the published profile
             if let pubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
-                try? ProfileStorage.shared.saveProfile(profileToPublish, for: pubkey)
+                DirectoryService.shared.updateCachedProfile(profileToPublish, for: pubkey)
             }
             
             await MainActor.run {
                 self.avatarUrl = imageUrl
-                self.selectedImage = nil  // Clear local image since it's now on server
+                // Transfer the selected image to loadedAvatarImage so it keeps displaying
+                if self.selectedImage != nil {
+                    self.loadedAvatarImage = self.selectedImage
+                }
+                self.selectedImage = nil
+                self.selectedPhotoItem = nil
                 self.originalProfile = profileToPublish
                 self.successMessage = "Profile published successfully!"
                 self.isSaving = false

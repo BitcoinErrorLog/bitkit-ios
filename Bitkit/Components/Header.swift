@@ -5,6 +5,7 @@ struct Header: View {
     @EnvironmentObject var navigation: NavigationViewModel
 
     @State private var profileName: String?
+    @State private var avatarImage: UIImage?
 
     private let keyManager = PaykitKeyManager.shared
     private let profileStorage = ProfileStorage.shared
@@ -25,9 +26,17 @@ struct Header: View {
                                 .fill(Color.brand24)
                                 .frame(width: 32, height: 32)
 
-                            Text(name.prefix(1).uppercased())
-                                .font(Fonts.bold(size: 14))
-                                .foregroundColor(.brandAccent)
+                            if let avatar = avatarImage {
+                                Image(uiImage: avatar)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 32, height: 32)
+                                    .clipShape(Circle())
+                            } else {
+                                Text(name.prefix(1).uppercased())
+                                    .font(Fonts.bold(size: 14))
+                                    .foregroundColor(.brandAccent)
+                            }
                         }
 
                         Text(name)
@@ -80,20 +89,32 @@ struct Header: View {
         .zIndex(.infinity)
         .padding(.leading, 16)
         .padding(.trailing, 10)
-        .onAppear {
-            loadProfileName()
+        .task {
+            loadProfile()
         }
         .onReceive(NotificationCenter.default.publisher(for: .profileDidUpdate)) { _ in
-            loadProfileName()
+            loadProfile()
         }
     }
 
-    private func loadProfileName() {
-        if let pubkey = keyManager.getCurrentPublicKeyZ32(),
-           let profile = profileStorage.getProfile(for: pubkey) {
-            profileName = profile.name
-        } else {
+    private func loadProfile() {
+        guard let pubkey = keyManager.getCurrentPublicKeyZ32(),
+              let profile = profileStorage.getProfile(for: pubkey) else {
             profileName = nil
+            avatarImage = nil
+            return
+        }
+        profileName = profile.name
+        
+        if let imageUrl = profile.image, !imageUrl.isEmpty {
+            Task {
+                let downloaded = await ImageUploadService.shared.downloadProfileImage(fileUrl: imageUrl)
+                await MainActor.run {
+                    self.avatarImage = downloaded
+                }
+            }
+        } else {
+            avatarImage = nil
         }
     }
 }

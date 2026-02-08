@@ -83,12 +83,20 @@ public final class PubkySDKService {
         return legacySessionCache.values.first
     }
     
+    // MARK: - Cache Management
+    
+    /// Invalidate the cached profile for a specific pubkey
+    public func invalidateProfileCache(for pubkey: String) {
+        profileCache.removeValue(forKey: pubkey)
+        Logger.debug("Invalidated profile cache for \(pubkey.prefix(12))...", context: "PubkySDKService")
+    }
+    
     // MARK: - Profile Operations
     
     /// Fetch a user's profile from their homeserver
-    public func fetchProfile(pubkey: String, app: String = "pubky.app") async throws -> SDKProfile {
-        // Check cache first
-        if let cached = profileCache[pubkey], !cached.isExpired(ttl: profileCacheTTL) {
+    public func fetchProfile(pubkey: String, app: String = "pubky.app", forceRefresh: Bool = false) async throws -> SDKProfile {
+        // Check cache first (skip if force refresh)
+        if !forceRefresh, let cached = profileCache[pubkey], !cached.isExpired(ttl: profileCacheTTL) {
             Logger.debug("Profile cache hit for \(pubkey.prefix(12))...", context: "PubkySDKService")
             return cached.profile
         }

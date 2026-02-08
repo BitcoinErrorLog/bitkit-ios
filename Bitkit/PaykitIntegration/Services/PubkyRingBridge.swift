@@ -733,7 +733,7 @@ public final class PubkyRingBridge {
         let profile = PubkyProfile(
             name: params["name"]?.removingPercentEncoding,
             bio: params["bio"]?.removingPercentEncoding,
-            avatar: params["avatar"]?.removingPercentEncoding,
+            image: (params["image"] ?? params["avatar"])?.removingPercentEncoding,
             links: nil // Links would need JSON parsing, simplified for now
         )
         

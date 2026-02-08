@@ -191,7 +191,7 @@ struct ProfilePreviewCard: View {
                                 .resizable()
                                 .scaledToFill()
                                 .clipShape(Circle())
-                        } else if let avatarUrl = profile.avatar, let url = URL(string: avatarUrl) {
+                        } else if let avatarUrl = profile.image, let url = URL(string: avatarUrl) {
                             AsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let image):

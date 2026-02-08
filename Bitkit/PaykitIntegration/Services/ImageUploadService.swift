@@ -83,6 +83,60 @@ public class ImageUploadService {
         return fileUrl
     }
     
+    /// Download a profile image from a pubky:// file URL
+    /// - Parameter fileUrl: The pubky:// URL pointing to the PubkyAppFile metadata
+    /// - Returns: The downloaded UIImage, or nil if unavailable
+    public func downloadProfileImage(fileUrl: String) async -> UIImage? {
+        // Parse pubky://<pubkey>/pub/pubky.app/files/<fileId>
+        guard fileUrl.hasPrefix("pubky://") else { return nil }
+        
+        let stripped = String(fileUrl.dropFirst("pubky://".count))
+        guard let slashIndex = stripped.firstIndex(of: "/") else { return nil }
+        let pubkey = String(stripped[stripped.startIndex..<slashIndex])
+        let filePath = String(stripped[slashIndex...])
+        
+        // Fetch the file metadata JSON
+        let adapter = PubkyUnauthenticatedStorageAdapter()
+        let metaResult = adapter.get(ownerPubkey: pubkey, path: filePath)
+        
+        guard metaResult.success, let metaContent = metaResult.content,
+              let metaData = metaContent.data(using: .utf8) else {
+            Logger.error("Failed to fetch file metadata from \(filePath)", context: "ImageUploadService")
+            return nil
+        }
+        
+        // Parse the PubkyAppFile to get the blob src URL
+        guard let fileEntry = try? JSONDecoder().decode(PubkyAppFile.self, from: metaData) else {
+            Logger.error("Failed to decode file metadata", context: "ImageUploadService")
+            return nil
+        }
+        
+        // Parse the blob URL: pubky://<pubkey>/pub/pubky.app/blobs/<fileId>
+        let blobUrl = fileEntry.src
+        guard blobUrl.hasPrefix("pubky://") else { return nil }
+        
+        let blobStripped = String(blobUrl.dropFirst("pubky://".count))
+        guard let blobSlashIndex = blobStripped.firstIndex(of: "/") else { return nil }
+        let blobPubkey = String(blobStripped[blobStripped.startIndex..<blobSlashIndex])
+        let blobPath = String(blobStripped[blobSlashIndex...])
+        
+        // Fetch the raw image data
+        let dataResult = adapter.getData(ownerPubkey: blobPubkey, path: blobPath)
+        
+        guard dataResult.success, let imageData = dataResult.data else {
+            Logger.error("Failed to download blob from \(blobPath)", context: "ImageUploadService")
+            return nil
+        }
+        
+        guard let image = UIImage(data: imageData) else {
+            Logger.error("Downloaded data is not a valid image (\(imageData.count) bytes)", context: "ImageUploadService")
+            return nil
+        }
+        
+        Logger.info("Downloaded profile image: \(imageData.count) bytes", context: "ImageUploadService")
+        return image
+    }
+    
     // MARK: - Private Methods
     
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
