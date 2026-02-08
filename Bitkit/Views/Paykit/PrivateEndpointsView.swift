@@ -68,7 +68,7 @@ struct PrivateEndpointsView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "lock.shield")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Private Endpoints")

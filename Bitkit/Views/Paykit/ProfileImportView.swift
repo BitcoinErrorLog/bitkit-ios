@@ -74,9 +74,9 @@ struct ProfileImportView: View {
                     if let error = errorMessage {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.red)
+                                .foregroundColor(.redAccent)
                             BodySText(error)
-                                .foregroundColor(.red)
+                                .foregroundColor(.redAccent)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -98,7 +98,7 @@ struct ProfileImportView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color.green)
+                            .background(Color.greenAccent)
                             .foregroundColor(.white)
                             .cornerRadius(8)
                         }
@@ -109,9 +109,9 @@ struct ProfileImportView: View {
                     if importedSuccessfully {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
+                                .foregroundColor(.greenAccent)
                             BodyMText("Profile imported successfully!")
-                                .foregroundColor(.green)
+                                .foregroundColor(.greenAccent)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -121,7 +121,7 @@ struct ProfileImportView: View {
                 .padding(.top, 16)
             }
         }
-        .background(Color.gray6)
+        .background(Color.customBlack)
         .onAppear {
             // Pre-fill with current pubkey if available
             if let currentPubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
@@ -242,7 +242,7 @@ struct ProfilePreviewCard: View {
                                 BodySText(link.title)
                                     .foregroundColor(.white)
                                 Text(link.url)
-                                    .font(.caption)
+                                    .font(Fonts.regular(size: 13))
                                     .foregroundColor(.textSecondary)
                             }
                         }
@@ -259,7 +259,7 @@ struct ProfilePreviewCard: View {
     private var avatarFallback: some View {
         if let name = profile.name, !name.isEmpty {
             Text(String(name.prefix(1)).uppercased())
-                .font(.title2)
+                .font(Fonts.semiBold(size: 22))
                 .foregroundColor(.brandAccent)
         } else {
             Image(systemName: "person.fill")

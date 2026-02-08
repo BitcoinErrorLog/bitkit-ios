@@ -88,7 +88,7 @@ struct SessionManagementView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
                 .foregroundColor(.white)
-                .font(.title3)
+                .font(Fonts.semiBold(size: 20))
         }
     }
     
@@ -143,7 +143,7 @@ struct SessionManagementView: View {
             if viewModel.sessions.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
-                        .font(.system(size: 32))
+                        .font(Fonts.regular(size: 32))
                         .foregroundColor(.textSecondary)
                     
                     BodyMText("No active sessions")
@@ -188,7 +188,7 @@ struct SessionManagementView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "square.and.arrow.up")
                         .foregroundColor(.brandAccent)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                     
                     VStack(alignment: .leading, spacing: 4) {
                         BodyMBoldText("Export Backup")
@@ -202,7 +202,7 @@ struct SessionManagementView: View {
                     
                     Image(systemName: "chevron.right")
                         .foregroundColor(.textSecondary)
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                 }
                 .padding(16)
                 .background(Color.gray6)
@@ -214,8 +214,8 @@ struct SessionManagementView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "square.and.arrow.down")
-                        .foregroundColor(.blue)
-                        .font(.title3)
+                        .foregroundColor(.blueAccent)
+                        .font(Fonts.semiBold(size: 20))
                     
                     VStack(alignment: .leading, spacing: 4) {
                         BodyMBoldText("Import Backup")
@@ -229,7 +229,7 @@ struct SessionManagementView: View {
                     
                     Image(systemName: "chevron.right")
                         .foregroundColor(.textSecondary)
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                 }
                 .padding(16)
                 .background(Color.gray6)
@@ -261,7 +261,7 @@ struct SessionRow: View {
                 Button(action: onRemove) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.red.opacity(0.7))
-                        .font(.title2)
+                        .font(Fonts.semiBold(size: 22))
                 }
             }
             
@@ -324,13 +324,13 @@ struct ExportBackupSheet: View {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.textSecondary)
-                        .font(.title2)
+                        .font(Fonts.semiBold(size: 22))
                 }
             }
             
             ScrollView {
                 Text(backupJSON)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 13, design: .monospaced))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
@@ -385,12 +385,12 @@ struct ImportBackupSheet: View {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.textSecondary)
-                        .font(.title2)
+                        .font(Fonts.semiBold(size: 22))
                 }
             }
             
             TextEditor(text: $importText)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 13, design: .monospaced))
                 .foregroundColor(.white)
                 .frame(maxHeight: 200)
                 .padding(12)

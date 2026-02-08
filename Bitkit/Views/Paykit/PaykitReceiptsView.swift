@@ -151,7 +151,7 @@ struct PaykitReceiptsView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "doc.text")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Receipts")
@@ -203,7 +203,7 @@ struct FilterChip: View {
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundColor(.textSecondary)
-                    .font(.caption2)
+                    .font(Fonts.regular(size: 11))
             }
         }
         .padding(.horizontal, 12)
@@ -221,7 +221,7 @@ struct ReceiptsViewRow: View {
             HStack {
                 Image(systemName: receipt.direction == .sent ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                     .foregroundColor(receipt.direction == .sent ? .redAccent : .greenAccent)
-                    .font(.title3)
+                    .font(Fonts.semiBold(size: 20))
                 
                 VStack(alignment: .leading, spacing: 4) {
                     BodyMText(receipt.displayName)
@@ -233,7 +233,7 @@ struct ReceiptsViewRow: View {
                         
                         if receipt.status == .pending {
                             BodySText("• Pending")
-                                .foregroundColor(.orange)
+                                .foregroundColor(.yellowAccent)
                         }
                     }
                 }

@@ -32,7 +32,7 @@ struct ReceiptDetailView: View {
     private var amountHeader: some View {
         VStack(spacing: 16) {
             Image(systemName: receipt.direction == .sent ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                .font(.system(size: 60))
+                .font(Fonts.regular(size: 60))
                 .foregroundColor(receipt.direction == .sent ? .redAccent : .greenAccent)
             
             BodyLText(receipt.formattedAmount)

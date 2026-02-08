@@ -145,14 +145,14 @@ struct ContactDiscoveryView: View {
     private func methodHealthPill(method: String, count: Int, healthy: Int) -> some View {
         HStack(spacing: 4) {
             Image(systemName: methodIcon(method))
-                .font(.caption)
+                .font(Fonts.regular(size: 13))
             
             BodySText("\(healthy)/\(count)")
         }
         .foregroundColor(healthy == count ? .greenAccent : (healthy > 0 ? .orange : .redAccent))
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background((healthy == count ? Color.greenAccent : (healthy > 0 ? Color.orange : Color.redAccent)).opacity(0.2))
+        .background((healthy == count ? Color.greenAccent : (healthy > 0 ? Color.yellowAccent : Color.redAccent)).opacity(0.2))
         .cornerRadius(12)
     }
     
@@ -321,7 +321,7 @@ struct ContactDiscoveryView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Contacts Found")
@@ -361,7 +361,7 @@ struct DiscoveredContactRow: View {
                 .overlay {
                     Text(String((contact.name ?? contact.pubkey).prefix(1)).uppercased())
                         .foregroundColor(.brandAccent)
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                 }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -385,7 +385,7 @@ struct DiscoveredContactRow: View {
             VStack(spacing: 4) {
                 Image(systemName: contact.overallHealthIcon)
                     .foregroundColor(contact.overallHealthColor)
-                    .font(.title3)
+                    .font(Fonts.semiBold(size: 20))
                 
                 BodySText(contact.healthStatus)
                     .foregroundColor(contact.overallHealthColor)
@@ -406,7 +406,7 @@ struct DiscoveredContactRow: View {
                 } label: {
                     Image(systemName: "person.badge.plus")
                         .foregroundColor(.brandAccent)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                 }
                 
                 // Unfollow button
@@ -423,7 +423,7 @@ struct DiscoveredContactRow: View {
                 } label: {
                     Image(systemName: "person.badge.minus")
                         .foregroundColor(.redAccent)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                 }
                 
                 // Add to contacts button
@@ -437,7 +437,7 @@ struct DiscoveredContactRow: View {
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(.greenAccent)
-                        .font(.title2)
+                        .font(Fonts.semiBold(size: 22))
                 }
             }
         }
@@ -447,7 +447,7 @@ struct DiscoveredContactRow: View {
     private func methodHealthIndicator(method: String, isHealthy: Bool) -> some View {
         HStack(spacing: 2) {
             Image(systemName: methodIcon(method))
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
             Circle()
                 .fill(isHealthy ? Color.greenAccent : Color.redAccent)
                 .frame(width: 6, height: 6)
@@ -510,7 +510,7 @@ struct ContactDetailSheet: View {
                 .overlay {
                     Text(String((contact.name ?? contact.pubkey).prefix(1)).uppercased())
                         .foregroundColor(.brandAccent)
-                        .font(.largeTitle)
+                        .font(Fonts.bold(size: 34))
                 }
             
             HeadlineText(contact.name ?? "Unknown")
@@ -523,7 +523,7 @@ struct ContactDetailSheet: View {
                 HStack(spacing: 4) {
                     BodySText(contact.abbreviatedPubkey)
                     Image(systemName: "doc.on.doc")
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                 }
                 .foregroundColor(.brandAccent)
             }

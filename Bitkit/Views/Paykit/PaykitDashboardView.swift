@@ -62,14 +62,14 @@ struct PaykitDashboardView: View {
                     title: "Total Sent",
                     value: formatSats(viewModel.totalSent),
                     icon: "arrow.up.circle.fill",
-                    color: .red
+                    color: .redAccent
                 )
                 
                 StatCard(
                     title: "Total Received",
                     value: formatSats(viewModel.totalReceived),
                     icon: "arrow.down.circle.fill",
-                    color: .green
+                    color: .greenAccent
                 )
             }
             
@@ -78,7 +78,7 @@ struct PaykitDashboardView: View {
                     title: "Contacts",
                     value: "\(viewModel.contactCount)",
                     icon: "person.2.fill",
-                    color: .blue
+                    color: .blueAccent
                 ) {
                     navigation.navigate(.paykitContacts)
                 }
@@ -87,7 +87,7 @@ struct PaykitDashboardView: View {
                     title: "Subscriptions",
                     value: "\(viewModel.activeSubscriptions)",
                     icon: "repeat.circle.fill",
-                    color: .purple
+                    color: .purpleAccent
                 ) {
                     navigation.navigate(.paykitSubscriptions)
                 }
@@ -104,7 +104,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Auto-Pay",
                     icon: "arrow.clockwise.circle.fill",
-                    color: .orange,
+                    color: .yellowAccent,
                     badge: viewModel.autoPayEnabled ? "ON" : nil
                 ) {
                     navigation.navigate(.paykitAutoPay)
@@ -113,7 +113,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Payment Requests",
                     icon: "arrow.down.doc.fill",
-                    color: .green,
+                    color: .greenAccent,
                     badge: viewModel.pendingRequests > 0 ? "\(viewModel.pendingRequests)" : nil
                 ) {
                     navigation.navigate(.paykitPaymentRequests)
@@ -124,7 +124,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Noise Payment",
                     icon: "waveform.circle.fill",
-                    color: .purple,
+                    color: .purpleAccent,
                     badge: nil
                 ) {
                     navigation.navigate(.paykitNoisePayment)
@@ -133,7 +133,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Discover",
                     icon: "magnifyingglass.circle.fill",
-                    color: .mint,
+                    color: .greenAccent,
                     badge: nil
                 ) {
                     navigation.navigate(.paykitContactDiscovery)
@@ -151,7 +151,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Profile",
                     icon: "person.circle.fill",
-                    color: .pink,
+                    color: .brandAccent,
                     badge: nil
                 ) {
                     navigation.navigate(.paykitProfileEdit)
@@ -161,7 +161,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Endpoints",
                     icon: "link.circle.fill",
-                    color: .indigo,
+                    color: .blueAccent,
                     badge: viewModel.publishedMethodsCount > 0 ? "\(viewModel.publishedMethodsCount)" : nil
                 ) {
                     navigation.navigate(.paykitPrivateEndpoints)
@@ -172,7 +172,7 @@ struct PaykitDashboardView: View {
                 QuickAccessCard(
                     title: "Key Rotation",
                     icon: "key.fill",
-                    color: .yellow,
+                    color: .yellowAccent,
                     badge: nil
                 ) {
                     navigation.navigate(.paykitRotationSettings)
@@ -191,7 +191,7 @@ struct PaykitDashboardView: View {
             QuickAccessCard(
                 title: "Sessions",
                 icon: "person.badge.shield.checkmark.fill",
-                color: .teal,
+                color: .blueAccent,
                 badge: viewModel.sessionCount > 0 ? "\(viewModel.sessionCount)" : nil
             ) {
                 navigation.navigate(.paykitSessionManagement)
@@ -206,12 +206,12 @@ struct PaykitDashboardView: View {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
-                        .fill(pubkyRingBridge.isPubkyRingInstalled ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
+                        .fill(pubkyRingBridge.isPubkyRingInstalled ? Color.greenAccent.opacity(0.2) : Color.yellowAccent.opacity(0.2))
                         .frame(width: 44, height: 44)
                     
                     Image(systemName: pubkyRingBridge.isPubkyRingInstalled ? "checkmark.shield.fill" : "qrcode")
                         .foregroundColor(pubkyRingBridge.isPubkyRingInstalled ? .green : .orange)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
@@ -226,7 +226,7 @@ struct PaykitDashboardView: View {
                 
                 Image(systemName: "chevron.right")
                     .foregroundColor(.textSecondary)
-                    .font(.caption)
+                    .font(Fonts.regular(size: 13))
             }
             .padding(16)
             .background(Color.gray6)
@@ -241,7 +241,7 @@ struct PaykitDashboardView: View {
                 .frame(width: 8, height: 8)
             
             Text(viewModel.sessionStatus.displayText)
-                .font(.caption)
+                .font(Fonts.regular(size: 13))
                 .foregroundColor(viewModel.sessionStatus.color)
                 .accessibilityIdentifier(viewModel.sessionStatus.accessibilityId)
             
@@ -251,7 +251,7 @@ struct PaykitDashboardView: View {
                 Button("Refresh Session") {
                     showPubkyRingAuth = true
                 }
-                .font(.caption)
+                .font(Fonts.regular(size: 13))
                 .foregroundColor(.brandAccent)
                 .accessibilityIdentifier("Refresh Session")
             }
@@ -280,7 +280,7 @@ struct PaykitDashboardView: View {
                 // Simple empty state instead of the large overlay
                 VStack(spacing: 12) {
                     Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 32))
+                        .font(Fonts.regular(size: 32))
                         .foregroundColor(.textSecondary)
                     
                     BodyMText("No recent activity")
@@ -328,7 +328,7 @@ struct StatCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: icon)
                 .foregroundColor(color)
-                .font(.title3)
+                .font(Fonts.semiBold(size: 20))
             
             BodyMBoldText(value)
                 .foregroundColor(.white)
@@ -356,11 +356,11 @@ struct TappableStatCard: View {
                 HStack {
                     Image(systemName: icon)
                         .foregroundColor(color)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                     Spacer()
                     Image(systemName: "chevron.right")
                         .foregroundColor(.textSecondary)
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                 }
                 
                 BodyMBoldText(value)
@@ -390,11 +390,11 @@ struct QuickAccessCard: View {
                 HStack {
                     Image(systemName: icon)
                         .foregroundColor(color)
-                        .font(.title3)
+                        .font(Fonts.semiBold(size: 20))
                     Spacer()
                     if let badge = badge {
                         Text(badge)
-                            .font(.caption2)
+                            .font(Fonts.regular(size: 11))
                             .fontWeight(.bold)
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
@@ -422,7 +422,7 @@ struct DashboardReceiptRow: View {
         HStack {
             Image(systemName: receipt.direction == .sent ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                 .foregroundColor(receipt.direction == .sent ? .red : .green)
-                .font(.title3)
+                .font(Fonts.semiBold(size: 20))
             
             VStack(alignment: .leading, spacing: 2) {
                 BodyMText(receipt.displayName)

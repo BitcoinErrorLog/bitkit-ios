@@ -91,7 +91,7 @@ struct ProfileEditView: View {
                                 BodySText("Bio")
                                     .foregroundColor(.textSecondary)
                                 Spacer()
-                                Text("\(bio.count)/160").font(.caption2)
+                                Text("\(bio.count)/160").font(Fonts.regular(size: 11))
                                     .foregroundColor(bio.count > 160 ? .red : .textSecondary)
                             }
                             
@@ -112,9 +112,9 @@ struct ProfileEditView: View {
                         if let error = errorMessage {
                             HStack {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.red)
+                                    .foregroundColor(.redAccent)
                                 BodySText(error)
-                                    .foregroundColor(.red)
+                                    .foregroundColor(.redAccent)
                             }
                             .padding(.horizontal, 16)
                         }
@@ -122,9 +122,9 @@ struct ProfileEditView: View {
                         if let success = successMessage {
                             HStack {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
+                                    .foregroundColor(.greenAccent)
                                 BodySText(success)
-                                    .foregroundColor(.green)
+                                    .foregroundColor(.greenAccent)
                                     .accessibilityIdentifier("Profile published successfully")
                             }
                             .padding(.horizontal, 16)
@@ -167,7 +167,7 @@ struct ProfileEditView: View {
                 }
             }
         }
-        .background(Color.gray6)
+        .background(Color.customBlack)
         .onAppear {
             Task {
                 await loadCurrentProfile()
@@ -202,11 +202,11 @@ struct ProfileEditView: View {
                                         .clipShape(Circle())
                                 } else if !name.isEmpty {
                                     Text(String(name.prefix(1)).uppercased())
-                                        .font(.largeTitle)
+                                        .font(Fonts.bold(size: 34))
                                         .foregroundColor(.brandAccent)
                                 } else {
                                     Image(systemName: "person.fill")
-                                        .font(.largeTitle)
+                                        .font(Fonts.bold(size: 34))
                                         .foregroundColor(.brandAccent)
                                 }
                             }
@@ -217,7 +217,7 @@ struct ProfileEditView: View {
                             .frame(width: 32, height: 32)
                             .overlay {
                                 Image(systemName: "camera.fill")
-                                    .font(.caption)
+                                    .font(Fonts.regular(size: 13))
                                     .foregroundColor(.white)
                             }
                     }
@@ -234,7 +234,7 @@ struct ProfileEditView: View {
                 }
                 
                 Text("Tap to change photo")
-                    .font(.caption)
+                    .font(Fonts.regular(size: 13))
                     .foregroundColor(.textSecondary)
             }
             Spacer()
@@ -254,7 +254,7 @@ struct ProfileEditView: View {
                         Image(systemName: "plus.circle.fill")
                         Text("Add Link")
                     }
-                    .font(.caption)
+                    .font(Fonts.regular(size: 13))
                     .foregroundColor(.brandAccent)
                 }
             }
@@ -273,7 +273,7 @@ struct ProfileEditView: View {
                             links.remove(at: index)
                         } label: {
                             Image(systemName: "trash")
-                                .foregroundColor(.red)
+                                .foregroundColor(.redAccent)
                         }
                     }
                     
@@ -319,7 +319,7 @@ struct ProfileEditView: View {
                 if let pubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
                     BodySText("Connected: \(String(pubkey.prefix(16)))...")
                         .foregroundColor(.textSecondary)
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                 }
             }
             .padding(.horizontal, 16)
@@ -334,7 +334,7 @@ struct ProfileEditView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(Color.gray6)
-                .foregroundColor(.red)
+                .foregroundColor(.redAccent)
                 .cornerRadius(8)
             }
             .padding(.horizontal, 16)

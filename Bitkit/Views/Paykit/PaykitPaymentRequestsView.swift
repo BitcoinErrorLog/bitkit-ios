@@ -78,7 +78,7 @@ struct PaykitPaymentRequestsView: View {
                             
                             if let result = viewModel.discoveryResult {
                                 Text(result)
-                                    .font(.caption)
+                                    .font(Fonts.regular(size: 13))
                                     .foregroundColor(.textSecondary)
                             }
                         }
@@ -195,7 +195,7 @@ struct PaykitPaymentRequestsView: View {
     private var sentEmptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "paperplane.circle")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Sent Requests")
@@ -351,7 +351,7 @@ struct PaykitPaymentRequestsView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "bell.badge")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Payment Requests")
@@ -437,7 +437,7 @@ struct PaymentRequestRow: View {
                 // Direction indicator
                 Image(systemName: request.direction == .incoming ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                     .foregroundColor(request.direction == .incoming ? .greenAccent : .brandAccent)
-                    .font(.title2)
+                    .font(Fonts.semiBold(size: 22))
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -467,7 +467,7 @@ struct PaymentRequestRow: View {
                     if !request.description.isEmpty {
                         HStack(spacing: 4) {
                             Image(systemName: "doc.text")
-                                .font(.caption2)
+                                .font(Fonts.regular(size: 11))
                             BodySText(request.description)
                         }
                         .foregroundColor(.brandAccent)
@@ -477,7 +477,7 @@ struct PaymentRequestRow: View {
                     if let expiresAt = request.expiresAt {
                         HStack(spacing: 4) {
                             Image(systemName: "clock")
-                                .font(.caption2)
+                                .font(Fonts.regular(size: 11))
                             BodySText(expiryText(expiresAt))
                         }
                         .foregroundColor(isExpiringSoon(expiresAt) ? .orange : .textSecondary)
@@ -529,7 +529,7 @@ struct PaymentRequestRow: View {
                     } label: {
                         Image(systemName: "checkmark")
                             .foregroundColor(.greenAccent)
-                            .font(.caption)
+                            .font(Fonts.regular(size: 13))
                             .frame(width: 28, height: 28)
                             .background(Color.greenAccent.opacity(0.2))
                             .cornerRadius(6)
@@ -540,7 +540,7 @@ struct PaymentRequestRow: View {
                     } label: {
                         Image(systemName: "xmark")
                             .foregroundColor(.redAccent)
-                            .font(.caption)
+                            .font(Fonts.regular(size: 13))
                             .frame(width: 28, height: 28)
                             .background(Color.redAccent.opacity(0.2))
                             .cornerRadius(6)
@@ -551,7 +551,7 @@ struct PaymentRequestRow: View {
             // Outgoing: Show status indicator
             Image(systemName: "chevron.right")
                 .foregroundColor(.textSecondary)
-                .font(.caption)
+                .font(Fonts.regular(size: 13))
         }
     }
     
@@ -618,19 +618,19 @@ struct StatusBadge: View {
         switch status {
         case .pending:
             Image(systemName: "clock")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .accepted:
             Image(systemName: "checkmark")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .declined:
             Image(systemName: "xmark")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .paid:
             Image(systemName: "checkmark.seal.fill")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .expired:
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         }
     }
     
@@ -694,7 +694,7 @@ struct PaymentRequestDetailSheet: View {
                     .frame(width: 72, height: 72)
                 
                 Image(systemName: request.direction == .incoming ? "arrow.down" : "arrow.up")
-                    .font(.system(size: 32, weight: .medium))
+                    .font(Fonts.medium(size: 32))
                     .foregroundColor(request.direction == .incoming ? .greenAccent : .brandAccent)
             }
             
@@ -738,7 +738,7 @@ struct PaymentRequestDetailSheet: View {
                             .foregroundColor(.redAccent)
                     } else {
                         BodyMText("Expires \(formatDate(expiresAt))")
-                            .foregroundColor(.orange)
+                            .foregroundColor(.yellowAccent)
                     }
                 }
             }
@@ -760,7 +760,7 @@ struct PaymentRequestDetailSheet: View {
                         .frame(width: 44, height: 44)
                     
                     Text(String(request.counterpartyName.prefix(1)).uppercased())
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                         .foregroundColor(.brandAccent)
                 }
                 
@@ -1013,7 +1013,7 @@ struct CreatePaymentRequestView: View {
                                     Text("Contacts")
                                 }
                                 .foregroundColor(.brandAccent)
-                                .font(.subheadline)
+                                .font(Fonts.regular(size: 15))
                             }
                         }
                         
@@ -1425,7 +1425,7 @@ struct SentRequestRow: View {
             HStack {
                 Image(systemName: "arrow.up.circle.fill")
                     .foregroundColor(.brandAccent)
-                    .font(.title2)
+                    .font(Fonts.semiBold(size: 22))
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -1463,13 +1463,13 @@ struct SentRequestRow: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.redAccent)
-                            .font(.title3)
+                            .font(Fonts.semiBold(size: 20))
                     }
                 }
                 
                 Image(systemName: "chevron.right")
                     .foregroundColor(.textSecondary)
-                    .font(.caption)
+                    .font(Fonts.regular(size: 13))
             }
             .padding(16)
         }
@@ -1514,13 +1514,13 @@ struct SentStatusBadge: View {
         switch status {
         case .pending:
             Image(systemName: "clock")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .paid:
             Image(systemName: "checkmark.seal.fill")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         case .expired:
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.caption2)
+                .font(Fonts.regular(size: 11))
         }
     }
     
@@ -1581,7 +1581,7 @@ struct SentRequestDetailSheet: View {
                     .frame(width: 72, height: 72)
                 
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 32, weight: .medium))
+                    .font(Fonts.medium(size: 32))
                     .foregroundColor(.brandAccent)
             }
             
@@ -1632,7 +1632,7 @@ struct SentRequestDetailSheet: View {
                         .frame(width: 44, height: 44)
                     
                     Text(String(request.recipientPubkey.prefix(1)).uppercased())
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                         .foregroundColor(.brandAccent)
                 }
                 

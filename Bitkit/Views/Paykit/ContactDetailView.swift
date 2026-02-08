@@ -91,13 +91,13 @@ private struct ContactDetailContent: View {
                     .frame(width: 120, height: 120)
                     .overlay {
                         Text(String(contact.name.isEmpty ? contact.publicKeyZ32.prefix(1) : contact.name.prefix(1)).uppercased())
-                            .font(.system(size: 48, weight: .bold))
+                            .font(Fonts.bold(size: 48))
                             .foregroundColor(.brandAccent)
                     }
                 
                 // Name
                 Text(contact.name.isEmpty ? "Unknown Contact" : contact.name)
-                    .font(.title2.bold())
+                    .font(Fonts.bold(size: 22))
                     .foregroundColor(.white)
                 
                 // Public Key Card
@@ -107,7 +107,7 @@ private struct ContactDetailContent: View {
                     
                     HStack {
                         Text(contact.publicKeyZ32)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: 13, design: .monospaced))
                             .foregroundColor(.white)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
@@ -182,7 +182,7 @@ private struct ContactDetailContent: View {
                         .background(Color.brandAccent)
                         .foregroundColor(.white)
                         .cornerRadius(12)
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                     }
                     
                     Button(action: onRemoveContact) {
@@ -200,7 +200,7 @@ private struct ContactDetailContent: View {
                         .background(Color.gray6)
                         .foregroundColor(.redAccent)
                         .cornerRadius(12)
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                     }
                     .disabled(isDeleting)
                 }

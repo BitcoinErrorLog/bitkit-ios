@@ -446,7 +446,7 @@ struct PaykitAutoPayView: View {
     private func emptyStateView(icon: String, title: String, message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 48))
+                .font(Fonts.regular(size: 48))
                 .foregroundColor(.textSecondary)
             
             BodyLText(title)

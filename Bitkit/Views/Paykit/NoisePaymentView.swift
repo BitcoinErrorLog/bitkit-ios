@@ -82,7 +82,7 @@ struct NoisePaymentView: View {
             HStack {
                 ZStack {
                     Circle()
-                        .fill(viewModel.isSessionActive ? Color.greenAccent.opacity(0.2) : Color.orange.opacity(0.2))
+                        .fill(viewModel.isSessionActive ? Color.greenAccent.opacity(0.2) : Color.yellowAccent.opacity(0.2))
                         .frame(width: 40, height: 40)
                     
                     Image(systemName: viewModel.isSessionActive ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
@@ -201,7 +201,7 @@ struct NoisePaymentView: View {
                 if !recipientPubkey.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: viewModel.isValidRecipient(recipientPubkey) ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                            .font(.caption)
+                            .font(Fonts.regular(size: 13))
                         BodySText(viewModel.isValidRecipient(recipientPubkey) ? "Valid pubkey format" : "Invalid pubkey format")
                     }
                     .foregroundColor(viewModel.isValidRecipient(recipientPubkey) ? .greenAccent : .redAccent)
@@ -219,7 +219,7 @@ struct NoisePaymentView: View {
                         set: { amount = Int64($0) ?? 0 }
                     ))
                     .foregroundColor(.white)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(Fonts.bold(size: 32))
                     .keyboardType(.numberPad)
                     
                     BodyLText("sats")
@@ -433,7 +433,7 @@ struct NoisePaymentView: View {
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(viewModel.isSessionActive ? (viewModel.isListening ? Color.orange : Color.brandAccent) : Color.gray5)
+                .background(viewModel.isSessionActive ? (viewModel.isListening ? Color.yellowAccent : Color.brandAccent) : Color.gray5)
                 .cornerRadius(12)
             }
             .disabled(!viewModel.isSessionActive)
@@ -450,7 +450,7 @@ struct NoisePaymentView: View {
                     
                     Image(systemName: "arrow.down.circle.fill")
                         .foregroundColor(.brandAccent)
-                        .font(.title2)
+                        .font(Fonts.semiBold(size: 22))
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
@@ -547,7 +547,7 @@ struct ContactPickerSheet: View {
                         Spacer()
                         
                         Image(systemName: "person.2.slash")
-                            .font(.system(size: 48))
+                            .font(Fonts.regular(size: 48))
                             .foregroundColor(.textSecondary)
                         
                         Text("No contacts")
@@ -590,7 +590,7 @@ struct ContactPickerSheet: View {
                                         Text(contact.name.isEmpty ? "Unknown" : contact.name)
                                             .foregroundColor(.white)
                                         Text(contact.abbreviatedKey)
-                                            .font(.caption)
+                                            .font(Fonts.regular(size: 13))
                                             .foregroundColor(.textSecondary)
                                     }
                                     
@@ -598,7 +598,7 @@ struct ContactPickerSheet: View {
                                     
                                     if contact.paymentCount > 0 {
                                         Text("\(contact.paymentCount) payments")
-                                            .font(.caption)
+                                            .font(Fonts.regular(size: 13))
                                             .foregroundColor(.textSecondary)
                                     }
                                 }

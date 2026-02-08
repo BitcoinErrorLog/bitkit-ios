@@ -76,7 +76,7 @@ struct PaykitContactsView: View {
                         // Empty state
                         VStack(spacing: 16) {
                             Image(systemName: "person.2.slash")
-                                .font(.system(size: 48))
+                                .font(Fonts.regular(size: 48))
                                 .foregroundColor(.textSecondary)
                             
                             BodyMText("No contacts")
@@ -146,7 +146,7 @@ struct ContactRow: View {
                 .overlay {
                     Text(String(contact.name.isEmpty ? contact.publicKeyZ32.prefix(1) : contact.name.prefix(1)).uppercased())
                         .foregroundColor(.brandAccent)
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                 }
             
             VStack(alignment: .leading, spacing: 4) {

@@ -23,7 +23,7 @@ struct ReceiptDetailLookupView: View {
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "doc.questionmark")
-                        .font(.system(size: 48))
+                        .font(Fonts.regular(size: 48))
                         .foregroundColor(.textSecondary)
                     
                     BodyLText("Receipt Not Found")

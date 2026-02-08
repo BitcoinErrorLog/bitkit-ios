@@ -165,7 +165,7 @@ struct PaykitSubscriptionsView: View {
                         .frame(height: 8)
                     
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(spendingPercentage > 0.8 ? Color.orange : Color.brandAccent)
+                        .fill(spendingPercentage > 0.8 ? Color.yellowAccent : Color.brandAccent)
                         .frame(width: geo.size.width * spendingPercentage, height: 8)
                 }
             }
@@ -204,7 +204,7 @@ struct PaykitSubscriptionsView: View {
     private var emptyStateView: some View {
         VStack(spacing: 24) {
             Image(systemName: "repeat.circle")
-                .font(.system(size: 80))
+                .font(Fonts.regular(size: 80))
                 .foregroundColor(.textSecondary)
             
             BodyLText("No Active Subscriptions")
@@ -255,7 +255,7 @@ struct PaykitSubscriptionsView: View {
                 // Discovery result message
                 if let result = viewModel.discoveryResult {
                     Text(result)
-                        .font(.caption)
+                        .font(Fonts.regular(size: 13))
                         .foregroundColor(.textSecondary)
                 }
             }
@@ -264,7 +264,7 @@ struct PaykitSubscriptionsView: View {
             if viewModel.proposals.isEmpty {
                 VStack(spacing: 24) {
                     Image(systemName: "envelope.badge")
-                        .font(.system(size: 80))
+                        .font(Fonts.regular(size: 80))
                         .foregroundColor(.textSecondary)
                     
                     BodyLText("No Proposals")
@@ -321,14 +321,14 @@ struct PaykitSubscriptionsView: View {
                         Text("Cleanup Orphaned")
                     }
                     .foregroundColor(.brandAccent)
-                    .font(.subheadline)
+                    .font(Fonts.regular(size: 15))
                 }
                 .disabled(isCleaningUp)
             }
             
             if let result = cleanupResult {
                 Text(result)
-                    .font(.caption)
+                    .font(Fonts.regular(size: 13))
                     .foregroundColor(.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -340,7 +340,7 @@ struct PaykitSubscriptionsView: View {
             } else if viewModel.sentProposals.isEmpty {
                 VStack(spacing: 24) {
                     Image(systemName: "paperplane")
-                        .font(.system(size: 80))
+                        .font(Fonts.regular(size: 80))
                         .foregroundColor(.textSecondary)
                     
                     BodyLText("No Sent Proposals")
@@ -367,7 +367,7 @@ struct PaykitSubscriptionsView: View {
             if viewModel.paymentHistory.isEmpty {
                 VStack(spacing: 24) {
                     Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 80))
+                        .font(Fonts.regular(size: 80))
                         .foregroundColor(.textSecondary)
                     
                     BodyLText("No Payment History")
@@ -410,7 +410,7 @@ struct ProposalCard: View {
                         .frame(width: 48, height: 48)
                     
                     Text(String(proposal.providerName.prefix(1)).uppercased())
-                        .font(.headline)
+                        .font(Fonts.semiBold(size: 17))
                         .foregroundColor(.brandAccent)
                 }
                 
@@ -660,7 +660,7 @@ struct SentProposalStatusBadge: View {
     
     var body: some View {
         Text(statusText)
-            .font(.caption)
+            .font(Fonts.regular(size: 13))
             .fontWeight(.medium)
             .foregroundColor(statusColor)
             .padding(.horizontal, 8)
@@ -805,7 +805,7 @@ struct SubscriptionDetailSheet: View {
                     .frame(width: 72, height: 72)
                 
                 Text(String(subscription.providerName.prefix(1)).uppercased())
-                    .font(.largeTitle)
+                    .font(Fonts.bold(size: 34))
                     .foregroundColor(subscription.isActive ? .greenAccent : .textSecondary)
             }
             
@@ -876,7 +876,7 @@ struct SubscriptionDetailSheet: View {
                             .frame(height: 8)
                         
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(usedPercent > 0.8 ? Color.orange : Color.brandAccent)
+                            .fill(usedPercent > 0.8 ? Color.yellowAccent : Color.brandAccent)
                             .frame(width: geo.size.width * usedPercent, height: 8)
                     }
                 }
@@ -1145,7 +1145,7 @@ struct SubscriptionRow: View {
                     .frame(width: 44, height: 44)
                 
                 Text(String(subscription.providerName.prefix(1)).uppercased())
-                    .font(.headline)
+                    .font(Fonts.semiBold(size: 17))
                     .foregroundColor(subscription.isActive ? .brandAccent : .textSecondary)
             }
             
@@ -1156,10 +1156,10 @@ struct SubscriptionRow: View {
                     
                     if !subscription.isActive {
                         BodySText("Paused")
-                            .foregroundColor(.orange)
+                            .foregroundColor(.yellowAccent)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.2))
+                            .background(Color.yellowAccent.opacity(0.2))
                             .cornerRadius(4)
                     }
                 }
@@ -1171,7 +1171,7 @@ struct SubscriptionRow: View {
                     if subscription.paymentCount > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2)
+                                .font(Fonts.regular(size: 11))
                             BodySText("\(subscription.paymentCount)")
                         }
                         .foregroundColor(.greenAccent)
@@ -1180,7 +1180,7 @@ struct SubscriptionRow: View {
                     if let nextPayment = subscription.nextPaymentAt, subscription.isActive {
                         HStack(spacing: 2) {
                             Image(systemName: "clock")
-                                .font(.caption2)
+                                .font(Fonts.regular(size: 11))
                             BodySText(formatDate(nextPayment))
                         }
                         .foregroundColor(.textSecondary)
@@ -1189,7 +1189,7 @@ struct SubscriptionRow: View {
                     if let limit = subscription.spendingLimit {
                         HStack(spacing: 2) {
                             Image(systemName: "shield.fill")
-                                .font(.caption2)
+                                .font(Fonts.regular(size: 11))
                             BodySText("\(formatSats(UInt64(limit.usedAmount)))/\(formatSats(UInt64(limit.maxAmount)))")
                         }
                         .foregroundColor(.brandAccent)
@@ -1258,7 +1258,7 @@ struct AddSubscriptionView: View {
                                     Text("Contacts")
                                 }
                                 .foregroundColor(.brandAccent)
-                                .font(.subheadline)
+                                .font(Fonts.regular(size: 15))
                             }
                         }
                         
