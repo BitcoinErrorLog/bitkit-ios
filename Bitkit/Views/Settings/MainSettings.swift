@@ -37,6 +37,14 @@ struct MainSettings: View {
                         }
                         .accessibilityIdentifier("BackupSettings")
 
+                        NavigationLink(value: Route.paykitDashboard) {
+                            SettingsListLabel(
+                                title: "Paykit",
+                                iconName: "lightning"
+                            )
+                        }
+                        .accessibilityIdentifier("PaykitDashboard")
+
                         NavigationLink(value: Route.advancedSettings) {
                             SettingsListLabel(
                                 title: t("settings__advanced_title"),
