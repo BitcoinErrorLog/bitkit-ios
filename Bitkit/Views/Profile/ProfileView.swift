@@ -175,6 +175,7 @@ struct ProfileView: View {
         hasIdentity = true
         isConnecting = false
         showPubkyRingAuth = false
+        NotificationCenter.default.post(name: .profileDidUpdate, object: nil)
     }
 }
 

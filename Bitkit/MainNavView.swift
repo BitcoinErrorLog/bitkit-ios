@@ -312,7 +312,7 @@ struct MainNavView: View {
                 }
             case .profile:
                 if app.hasSeenProfileIntro {
-                    ProfileEditView()
+                    ProfileView()
                 } else {
                     ProfileIntroView()
                 }

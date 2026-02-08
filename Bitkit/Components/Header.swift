@@ -4,25 +4,51 @@ struct Header: View {
     @EnvironmentObject var app: AppViewModel
     @EnvironmentObject var navigation: NavigationViewModel
 
+    @State private var profileName: String?
+
+    private let keyManager = PaykitKeyManager.shared
+    private let profileStorage = ProfileStorage.shared
+
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            // Button {
-            //     if app.hasSeenProfileIntro {
-            //         navigation.navigate(.profile)
-            //     } else {
-            //         navigation.navigate(.profileIntro)
-            //     }
-            // } label: {
-            //     HStack(alignment: .center, spacing: 16) {
-            //         Image(systemName: "person.circle.fill")
-            //             .resizable()
-            //             .font(.title2)
-            //             .foregroundColor(.gray1)
-            //             .frame(width: 32, height: 32)
+            Button {
+                if app.hasSeenProfileIntro {
+                    navigation.navigate(.profile)
+                } else {
+                    navigation.navigate(.profileIntro)
+                }
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    if let name = profileName, !name.isEmpty {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brand24)
+                                .frame(width: 32, height: 32)
 
-            //         TitleText(t("slashtags__your_name_capital"))
-            //     }
-            // }
+                            Text(name.prefix(1).uppercased())
+                                .font(Fonts.bold(size: 14))
+                                .foregroundColor(.brandAccent)
+                        }
+
+                        Text(name)
+                            .font(Fonts.semiBold(size: 17))
+                            .foregroundColor(.textPrimary)
+                            .lineLimit(1)
+                    } else {
+                        Image(systemName: "person.circle.fill")
+                            .resizable()
+                            .foregroundColor(.gray1)
+                            .frame(width: 32, height: 32)
+
+                        Text("Your Name")
+                            .font(Fonts.semiBold(size: 17))
+                            .foregroundColor(.white64)
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("ProfileHeader")
 
             Spacer()
 
@@ -54,5 +80,24 @@ struct Header: View {
         .zIndex(.infinity)
         .padding(.leading, 16)
         .padding(.trailing, 10)
+        .onAppear {
+            loadProfileName()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .profileDidUpdate)) { _ in
+            loadProfileName()
+        }
     }
+
+    private func loadProfileName() {
+        if let pubkey = keyManager.getCurrentPublicKeyZ32(),
+           let profile = profileStorage.getProfile(for: pubkey) {
+            profileName = profile.name
+        } else {
+            profileName = nil
+        }
+    }
+}
+
+extension Notification.Name {
+    static let profileDidUpdate = Notification.Name("profileDidUpdate")
 }

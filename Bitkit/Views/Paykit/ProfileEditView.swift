@@ -456,12 +456,19 @@ struct ProfileEditView: View {
             )
             
             try await DirectoryService.shared.publishProfile(profileToPublish)
+            
+            // Persist profile locally and notify header
+            if let pubkey = PaykitKeyManager.shared.getCurrentPublicKeyZ32() {
+                try? ProfileStorage.shared.saveProfile(profileToPublish, for: pubkey)
+            }
+            
             await MainActor.run {
                 self.avatarUrl = imageUrl
                 self.selectedImage = nil  // Clear local image since it's now on server
                 self.originalProfile = profileToPublish
                 self.successMessage = "Profile published successfully!"
                 self.isSaving = false
+                NotificationCenter.default.post(name: .profileDidUpdate, object: nil)
             }
         } catch {
             await MainActor.run {
