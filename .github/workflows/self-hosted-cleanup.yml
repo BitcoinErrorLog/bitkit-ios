@@ -2,6 +2,7 @@ name: self-hosted-cleanup
 
 on:
   workflow_dispatch:
+    # All automatic triggers disabled - manual only
 
 concurrency:
   group: self-hosted-runner

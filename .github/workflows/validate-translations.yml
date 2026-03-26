@@ -1,10 +1,8 @@
 name: Validate Translations
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
+  workflow_dispatch:
+    # All automatic triggers disabled - manual only
 
 jobs:
   validate:
